@@ -1,6 +1,7 @@
 "use client";
 
-import { UserButton } from "@clerk/nextjs";
+import { useAuth, UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChangeEvent,
@@ -24,12 +25,21 @@ import {
   User,
 } from "lucide-react";
 import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "@/server/types/chat";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { ApiError, apiGet, apiPost } from "@/lib/api-client";
 
 type TurnResponse = {
   userMessage: ApiMessage;
   assistantMessage: ApiMessage;
   title: string;
+  anonymousQuotaExhausted?: boolean;
+};
+
+type UsagePayload = {
+  sessionId: string | null;
+  freeLimit: number | null;
+  usedQuestions: number | null;
+  remainingQuestions: number | null;
+  isAnonymous: boolean;
 };
 
 type UiRole = "user" | "assistant";
@@ -77,6 +87,9 @@ function mapApiMessage(row: ApiMessage): UiMessage {
 
 export function ChatShell() {
   const queryClient = useQueryClient();
+  const { isLoaded, userId } = useAuth();
+  const isGuestMode = isLoaded && !userId;
+
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [showSidebar, setShowSidebar] = useState(true);
@@ -90,6 +103,11 @@ export function ChatShell() {
   const chatsQuery = useQuery({
     queryKey: ["chats"],
     queryFn: () => apiGet<ApiChat[]>("/api/chats"),
+  });
+
+  const usageQuery = useQuery({
+    queryKey: ["usage"],
+    queryFn: () => apiGet<UsagePayload>("/api/me/usage"),
   });
 
   const chatsForSidebar = chatsQuery.data ?? [];
@@ -160,7 +178,15 @@ export function ChatShell() {
 
       return { previousChat, optimisticId };
     },
-    onError: (_error, variables, context) => {
+    onError: (error, variables, context) => {
+      if (error instanceof ApiError && error.code === "FREE_LIMIT_EXCEEDED") {
+        queryClient.setQueryData<ApiChat[]>(["chats"], []);
+        queryClient.removeQueries({ queryKey: ["chat", variables.chatId] });
+        setSelectedChatId(null);
+        void queryClient.invalidateQueries({ queryKey: ["usage"] });
+        setDraft(variables.content);
+        return;
+      }
       if (context?.previousChat !== undefined) {
         queryClient.setQueryData(["chat", variables.chatId], context.previousChat);
       } else {
@@ -180,27 +206,41 @@ export function ChatShell() {
         };
       });
 
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-        if (!previous) return previous;
-        const next = previous.map((chat) =>
-          chat.id === variables.chatId
-            ? {
-                ...chat,
-                title: data.title,
-                updatedAt: data.assistantMessage.createdAt,
-              }
-            : chat,
-        );
-        return [...next].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-      });
+      if (data.anonymousQuotaExhausted) {
+        queryClient.setQueryData<ApiChat[]>(["chats"], []);
+      } else {
+        queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+          if (!previous) return previous;
+          const next = previous.map((chat) =>
+            chat.id === variables.chatId
+              ? {
+                  ...chat,
+                  title: data.title,
+                  updatedAt: data.assistantMessage.createdAt,
+                }
+              : chat,
+          );
+          return [...next].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["usage"] });
     },
   });
+
+  const usage = usageQuery.data;
+  const anonFreeLimitReached = Boolean(
+    usage?.isAnonymous &&
+      usage.remainingQuestions !== null &&
+      usage.remainingQuestions <= 0,
+  );
 
   const handleCreateChat = () => {
     createChatMutation.mutate();
   };
 
   const handleComposerFocus = () => {
+    if (anonFreeLimitReached) return;
+    if (isGuestMode && (chatsQuery.data?.length ?? 0) > 0) return;
     if (selectedChatId !== null || createChatMutation.isPending) return;
     createChatMutation.mutate();
   };
@@ -208,6 +248,7 @@ export function ChatShell() {
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (sendMutation.isPending || createChatMutation.isPending) return;
+    if (anonFreeLimitReached) return;
 
     const text = draft.trim();
     const hasAttachments = Boolean(selectedFile || selectedImage);
@@ -215,11 +256,26 @@ export function ChatShell() {
 
     let chatId = selectedChatId;
     if (!chatId) {
-      try {
-        const chat = await createChatMutation.mutateAsync();
-        chatId = chat.id;
-      } catch {
-        return;
+      if (isGuestMode) {
+        const list = chatsQuery.data ?? [];
+        if (list.length > 0) {
+          chatId = list[0].id;
+          setSelectedChatId(chatId);
+        } else {
+          try {
+            const chat = await createChatMutation.mutateAsync();
+            chatId = chat.id;
+          } catch {
+            return;
+          }
+        }
+      } else {
+        try {
+          const chat = await createChatMutation.mutateAsync();
+          chatId = chat.id;
+        } catch {
+          return;
+        }
       }
     }
 
@@ -248,13 +304,29 @@ export function ChatShell() {
   };
 
   const openAttachmentPicker = async (kind: "file" | "image") => {
-    if (sendMutation.isPending) return;
+    if (sendMutation.isPending || anonFreeLimitReached) return;
     if (!selectedChatId) {
-      if (createChatMutation.isPending) return;
-      try {
-        await createChatMutation.mutateAsync();
-      } catch {
+      if (isGuestMode) {
+        const list = chatsQuery.data ?? [];
+        if (list.length > 0) {
+          setSelectedChatId(list[0].id);
+        } else if (createChatMutation.isPending) {
+          return;
+        } else {
+          try {
+            await createChatMutation.mutateAsync();
+          } catch {
+            return;
+          }
+        }
+      } else if (createChatMutation.isPending) {
         return;
+      } else {
+        try {
+          await createChatMutation.mutateAsync();
+        } catch {
+          return;
+        }
       }
     }
     if (kind === "file") {
@@ -282,15 +354,30 @@ export function ChatShell() {
     textarea.style.overflowY = textarea.scrollHeight > 220 ? "auto" : "hidden";
   }, [draft]);
 
+  /** Anonymous / signed-out: one thread only — bind to the latest existing chat, never a second from the UI. */
+  useEffect(() => {
+    if (!isGuestMode) return;
+    if (!chatsQuery.isSuccess) return;
+    const list = chatsQuery.data ?? [];
+    if (list.length === 0) return;
+    const preferredId = list[0].id;
+    setSelectedChatId((current) => {
+      if (current && list.some((c) => c.id === current)) return current;
+      return preferredId;
+    });
+  }, [isGuestMode, chatsQuery.isSuccess, chatsQuery.data]);
+
   const loadError = chatsQuery.error?.message ?? chatDetailQuery.error?.message ?? sendMutation.error?.message;
   const isBootLoading = chatsQuery.isLoading;
   const isChatLoading = Boolean(activeChatId) && chatDetailQuery.isLoading;
   const sendDisabled =
     sendMutation.isPending ||
     createChatMutation.isPending ||
+    anonFreeLimitReached ||
     (!draft.trim() && !selectedFile && !selectedImage);
 
   const composerBusy = sendMutation.isPending || (selectedChatId === null && createChatMutation.isPending);
+  const attachmentDisabled = composerBusy || anonFreeLimitReached;
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -300,9 +387,11 @@ export function ChatShell() {
     formRef.current?.requestSubmit();
   };
 
+  const showChatSidebar = !isGuestMode && showSidebar;
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      {showSidebar ? (
+      {showChatSidebar ? (
         <aside className="hidden w-[280px] shrink-0 border-r border-[var(--border)] bg-[var(--panel-soft)] p-3 md:block">
           <button
             className="mb-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm font-medium transition hover:bg-[#f9fafb] disabled:opacity-50"
@@ -352,20 +441,54 @@ export function ChatShell() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <button
-              className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
-              onClick={() => setShowSidebar((prev) => !prev)}
-              type="button"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <span className="text-sm font-medium">{activeChatId ? activeTitle : "Chatbot"}</span>
+            {!isGuestMode ? (
+              <button
+                className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+                onClick={() => setShowSidebar((prev) => !prev)}
+                type="button"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            ) : null}
+            <span className="text-sm font-medium">
+              {isGuestMode ? (activeChatId ? activeTitle : "Chat") : activeChatId ? activeTitle : "Chatbot"}
+            </span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <span className="hidden text-xs text-[var(--muted)] sm:inline">GPT-4.1 mini</span>
+            {isGuestMode ? (
+              <Link
+                className="rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[#eceff3]"
+                href="/sign-in"
+              >
+                Sign in
+              </Link>
+            ) : null}
             <UserButton />
           </div>
         </header>
+
+        {usage?.isAnonymous && usage.freeLimit != null ? (
+          <div className="border-b border-[var(--border)] bg-[var(--panel-soft)] px-4 py-2 text-center text-sm text-[var(--foreground)]">
+            {usage.remainingQuestions != null && usage.remainingQuestions > 0 ? (
+              <span>
+                {usage.remainingQuestions} free {usage.remainingQuestions === 1 ? "question" : "questions"} left ·{" "}
+                <Link className="font-medium underline underline-offset-2" href="/sign-in">
+                  Sign in
+                </Link>{" "}
+                for unlimited access
+              </span>
+            ) : (
+              <span>
+                You&apos;ve used all {usage.freeLimit} free questions.{" "}
+                <Link className="font-medium underline underline-offset-2" href="/sign-in">
+                  Sign in
+                </Link>{" "}
+                to continue chatting.
+              </span>
+            )}
+          </div>
+        ) : null}
 
         {loadError ? (
           <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600">{loadError}</div>
@@ -373,19 +496,27 @@ export function ChatShell() {
 
         <section className="flex-1 overflow-y-auto px-4 pb-32 pt-6">
           {!activeChatId ? (
-            <div className="mx-auto mt-20 flex max-w-3xl flex-col items-center text-center">
-              <h1 className="text-3xl font-medium tracking-tight md:text-4xl">What are you working on?</h1>
-              <p className="mt-3 text-sm text-[var(--muted)]">
-                Ask anything. Click the box below to start — a new chat is created automatically.
-              </p>
-            </div>
+            isGuestMode && isBootLoading ? (
+              <div className="mx-auto max-w-3xl px-2 pt-10 text-sm text-[var(--muted)]">Loading…</div>
+            ) : (
+              <div className="mx-auto mt-20 flex max-w-3xl flex-col items-center text-center">
+                <h1 className="text-3xl font-medium tracking-tight md:text-4xl">What are you working on?</h1>
+                <p className="mt-3 text-sm text-[var(--muted)]">
+                  {anonFreeLimitReached
+                    ? "You've used your free questions. Sign in from the header to keep chatting."
+                    : "Ask anything in this chat — sign in later for history and more chats."}
+                </p>
+              </div>
+            )
           ) : isChatLoading ? (
             <div className="mx-auto max-w-3xl px-2 text-sm text-[var(--muted)]">Loading messages…</div>
           ) : activeMessages.length === 0 ? (
             <div className="mx-auto mt-20 flex max-w-3xl flex-col items-center text-center">
               <h1 className="text-3xl font-medium tracking-tight md:text-4xl">What are you working on?</h1>
               <p className="mt-3 text-sm text-[var(--muted)]">
-                Ask anything. Upload docs and images to enrich context.
+                {anonFreeLimitReached
+                  ? "You've used your free questions. Sign in to send more messages."
+                  : "Ask anything. Upload docs and images to enrich context."}
               </p>
             </div>
           ) : (
@@ -464,12 +595,12 @@ export function ChatShell() {
               )}
               <div className="grid grid-cols-[1fr_auto] gap-x-2.5 px-0.5">
                 <textarea
-                  className="min-h-[44px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
-                  disabled={composerBusy}
+                  className="min-h-[44px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={composerBusy || anonFreeLimitReached}
                   onChange={(event) => setDraft(event.target.value)}
                   onFocus={handleComposerFocus}
                   onKeyDown={handleComposerKeyDown}
-                  placeholder="Ask anything"
+                  placeholder={anonFreeLimitReached ? "Sign in to send more messages" : "Ask anything"}
                   ref={textareaRef}
                   rows={1}
                   value={draft}
@@ -484,7 +615,7 @@ export function ChatShell() {
                 <div className="flex items-center gap-1 px-1 pb-1">
                   <button
                     className="rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40"
-                    disabled={composerBusy}
+                    disabled={attachmentDisabled}
                     onClick={() => void openAttachmentPicker("file")}
                     type="button"
                   >
@@ -492,7 +623,7 @@ export function ChatShell() {
                   </button>
                   <button
                     className="rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40"
-                    disabled={composerBusy}
+                    disabled={attachmentDisabled}
                     onClick={() => void openAttachmentPicker("image")}
                     type="button"
                   >
