@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireUserId } from "@/server/auth/require-user";
 import { chatService } from "@/server/services/chat.service";
 
 type RouteContext = {
@@ -6,8 +7,11 @@ type RouteContext = {
 };
 
 export async function GET(_: Request, context: RouteContext) {
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
+
   const { chatId } = await context.params;
-  const chat = await chatService.getChat(chatId);
+  const chat = await chatService.getChatForUser(chatId, authResult.userId);
 
   if (!chat) {
     return NextResponse.json({ error: "Chat not found" }, { status: 404 });
@@ -17,11 +21,14 @@ export async function GET(_: Request, context: RouteContext) {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
+
   const { chatId } = await context.params;
 
   try {
     const body = await request.json();
-    const chat = await chatService.renameChat(chatId, body);
+    const chat = await chatService.renameChat(chatId, authResult.userId, body);
 
     if (!chat) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 });
@@ -34,8 +41,11 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_: Request, context: RouteContext) {
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
+
   const { chatId } = await context.params;
-  const deleted = await chatService.deleteChat(chatId);
+  const deleted = await chatService.deleteChat(chatId, authResult.userId);
 
   if (!deleted) {
     return NextResponse.json({ error: "Chat not found" }, { status: 404 });

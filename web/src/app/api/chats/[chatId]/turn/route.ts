@@ -6,20 +6,6 @@ type RouteContext = {
   params: Promise<{ chatId: string }>;
 };
 
-export async function GET(_: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
-  const { chatId } = await context.params;
-  const messages = await chatService.listMessages(chatId, authResult.userId);
-
-  if (!messages) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
-  }
-
-  return NextResponse.json({ data: messages });
-}
-
 export async function POST(request: Request, context: RouteContext) {
   const authResult = await requireUserId();
   if (authResult instanceof NextResponse) return authResult;
@@ -28,13 +14,13 @@ export async function POST(request: Request, context: RouteContext) {
 
   try {
     const body = await request.json();
-    const message = await chatService.addMessage(chatId, authResult.userId, body);
+    const result = await chatService.sendTurnWithPlaceholder(chatId, authResult.userId, body);
 
-    if (!message) {
+    if (!result) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ data: message }, { status: 201 });
+    return NextResponse.json({ data: result });
   } catch {
     return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
   }
