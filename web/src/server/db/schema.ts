@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const chatRoleEnum = pgEnum("chat_role", ["user", "assistant", "system"]);
 
@@ -22,6 +22,14 @@ export const messagesTable = pgTable("messages", {
   role: chatRoleEnum("role").notNull(),
   content: text("content").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const anonymousUsageTable = pgTable("anonymous_usage", {
+  sessionId: text("session_id").primaryKey(),
+  questionCount: integer("question_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
     .defaultNow()
     .notNull(),
 });

@@ -1,20 +1,31 @@
-const usageBySession = new Map<string, number>();
+import { usageRepository } from "../repositories/usage.repository";
+
+const FREE_QUESTION_LIMIT = 3;
 
 export const usageService = {
-  getUsage(sessionId: string) {
-    const usedQuestions = usageBySession.get(sessionId) ?? 0;
-    const freeLimit = 3;
+  freeLimit: FREE_QUESTION_LIMIT,
+
+  async getUsedQuestions(sessionId: string): Promise<number> {
+    return usageRepository.getQuestionCount(sessionId);
+  },
+
+  async getUsage(sessionId: string) {
+    const usedQuestions = await usageRepository.getQuestionCount(sessionId);
     return {
       sessionId,
-      freeLimit,
+      freeLimit: FREE_QUESTION_LIMIT,
       usedQuestions,
-      remainingQuestions: Math.max(0, freeLimit - usedQuestions),
+      remainingQuestions: Math.max(0, FREE_QUESTION_LIMIT - usedQuestions),
     };
   },
 
-  incrementQuestion(sessionId: string) {
-    const current = usageBySession.get(sessionId) ?? 0;
-    usageBySession.set(sessionId, current + 1);
+  async incrementQuestion(sessionId: string) {
+    await usageRepository.incrementQuestionCount(sessionId);
     return this.getUsage(sessionId);
+  },
+
+  async hasAnonymousQuota(sessionId: string): Promise<boolean> {
+    const used = await usageRepository.getQuestionCount(sessionId);
+    return used < FREE_QUESTION_LIMIT;
   },
 };

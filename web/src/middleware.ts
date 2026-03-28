@@ -14,6 +14,10 @@ export default clerkMiddleware(async (auth, request) => {
     return;
   }
 
+  if (request.nextUrl.pathname === "/") {
+    return;
+  }
+
   await auth.protect();
 });
 

@@ -1,55 +1,48 @@
-import { NextResponse } from "next/server";
-import { requireUserId } from "@/server/auth/require-user";
+import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
 import { chatService } from "@/server/services/chat.service";
 
 type RouteContext = {
   params: Promise<{ chatId: string }>;
 };
 
-export async function GET(_: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
+export async function GET(request: Request, context: RouteContext) {
+  const principal = await resolveChatPrincipal(request);
   const { chatId } = await context.params;
-  const chat = await chatService.getChatForUser(chatId, authResult.userId);
+  const chat = await chatService.getChatForUser(chatId, principal.userId);
 
   if (!chat) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
+    return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
   }
 
-  return NextResponse.json({ data: chat });
+  return jsonWithPrincipal({ data: chat }, principal);
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
+  const principal = await resolveChatPrincipal(request);
   const { chatId } = await context.params;
 
   try {
     const body = await request.json();
-    const chat = await chatService.renameChat(chatId, authResult.userId, body);
+    const chat = await chatService.renameChat(chatId, principal.userId, body);
 
     if (!chat) {
-      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
+      return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
     }
 
-    return NextResponse.json({ data: chat });
+    return jsonWithPrincipal({ data: chat }, principal);
   } catch {
-    return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
   }
 }
 
-export async function DELETE(_: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
+export async function DELETE(request: Request, context: RouteContext) {
+  const principal = await resolveChatPrincipal(request);
   const { chatId } = await context.params;
-  const deleted = await chatService.deleteChat(chatId, authResult.userId);
+  const deleted = await chatService.deleteChat(chatId, principal.userId);
 
   if (!deleted) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
+    return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
   }
 
-  return NextResponse.json({ success: true });
+  return jsonWithPrincipal({ success: true }, principal);
 }
