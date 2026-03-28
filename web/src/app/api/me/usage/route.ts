@@ -1,13 +1,32 @@
-import { NextResponse } from "next/server";
+import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
 import { usageService } from "@/server/services/usage.service";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const sessionId = url.searchParams.get("sessionId");
+  const principal = await resolveChatPrincipal(request);
 
-  if (!sessionId) {
-    return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+  if (principal.anonSessionId) {
+    const usage = await usageService.getUsage(principal.anonSessionId);
+    return jsonWithPrincipal(
+      {
+        data: {
+          ...usage,
+          isAnonymous: true,
+        },
+      },
+      principal,
+    );
   }
 
-  return NextResponse.json({ data: usageService.getUsage(sessionId) });
+  return jsonWithPrincipal(
+    {
+      data: {
+        sessionId: null,
+        freeLimit: null,
+        usedQuestions: null,
+        remainingQuestions: null,
+        isAnonymous: false,
+      },
+    },
+    principal,
+  );
 }

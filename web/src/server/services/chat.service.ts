@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ANON_USER_PREFIX } from "../auth/chat-principal";
 import { FUTURE_ASSISTANT_ANSWER } from "../constants/assistant-placeholder";
 import { chatRepository } from "../repositories/chat.repository";
 import { ChatMessage, ChatRole } from "../types/chat";
@@ -52,6 +53,12 @@ export const chatService = {
     if (!chat) return false;
 
     return chatRepository.delete(chatId);
+  },
+
+  /** Strips persisted anonymous threads after free quota is exhausted (messages cascade). */
+  async deleteAllChatsForAnonymousUser(userId: string): Promise<number> {
+    if (!userId.startsWith(ANON_USER_PREFIX)) return 0;
+    return chatRepository.deleteAllByUserId(userId);
   },
 
   async listMessages(chatId: string, userId: string) {

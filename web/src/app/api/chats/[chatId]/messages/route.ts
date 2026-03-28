@@ -1,41 +1,36 @@
-import { NextResponse } from "next/server";
-import { requireUserId } from "@/server/auth/require-user";
+import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
 import { chatService } from "@/server/services/chat.service";
 
 type RouteContext = {
   params: Promise<{ chatId: string }>;
 };
 
-export async function GET(_: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
+export async function GET(request: Request, context: RouteContext) {
+  const principal = await resolveChatPrincipal(request);
   const { chatId } = await context.params;
-  const messages = await chatService.listMessages(chatId, authResult.userId);
+  const messages = await chatService.listMessages(chatId, principal.userId);
 
   if (!messages) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
+    return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
   }
 
-  return NextResponse.json({ data: messages });
+  return jsonWithPrincipal({ data: messages }, principal);
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const authResult = await requireUserId();
-  if (authResult instanceof NextResponse) return authResult;
-
+  const principal = await resolveChatPrincipal(request);
   const { chatId } = await context.params;
 
   try {
     const body = await request.json();
-    const message = await chatService.addMessage(chatId, authResult.userId, body);
+    const message = await chatService.addMessage(chatId, principal.userId, body);
 
     if (!message) {
-      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
+      return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
     }
 
-    return NextResponse.json({ data: message }, { status: 201 });
+    return jsonWithPrincipal({ data: message }, principal, { status: 201 });
   } catch {
-    return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
   }
 }
