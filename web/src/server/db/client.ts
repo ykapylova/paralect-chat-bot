@@ -7,18 +7,12 @@ declare global {
   var __chatbotDb: NodePgDatabase | undefined;
 }
 
-function normalizeDatabaseUrl(): string {
-  const raw = process.env.DATABASE_URL;
-  if (!raw) return "";
-  return raw.trim().replace(/^["']|["']$/g, "");
-}
-
 function getPool() {
   if (global.__chatbotDbPool) return global.__chatbotDbPool;
 
-  const connectionString = normalizeDatabaseUrl();
+  const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set. Configure Supabase Postgres URL.");
+    throw new Error("DATABASE_URL is not set. Configure your database URL.");
   }
 
   global.__chatbotDbPool = new Pool({

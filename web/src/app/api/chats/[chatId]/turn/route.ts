@@ -1,4 +1,8 @@
-import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import {
+  jsonErrWithPrincipal,
+  jsonOkWithPrincipal,
+  resolveChatPrincipal,
+} from "@/server/auth/chat-principal";
 import { notifyChatsSync } from "@/server/realtime/notify-chats-sync";
 import { chatService } from "@/server/services/chat.service";
 import { usageService } from "@/server/services/usage.service";
@@ -15,13 +19,11 @@ export async function POST(request: Request, context: RouteContext) {
     if (!allowed) {
       await chatService.deleteAllChatsForAnonymousUser(principal.userId);
       void notifyChatsSync(principal.userId);
-      return jsonWithPrincipal(
-        {
-          error: "You have used all free questions. Sign in to continue chatting.",
-          code: "FREE_LIMIT_EXCEEDED",
-        },
+      return jsonErrWithPrincipal(
         principal,
-        { status: 429 },
+        "You have used all free questions. Sign in to continue chatting.",
+        429,
+        { code: "FREE_LIMIT_EXCEEDED" },
       );
     }
   }
@@ -33,7 +35,7 @@ export async function POST(request: Request, context: RouteContext) {
     const result = await chatService.sendTurnWithPlaceholder(chatId, principal.userId, body);
 
     if (!result) {
-      return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
+      return jsonErrWithPrincipal(principal, "Chat not found", 404);
     }
 
     if (principal.anonSessionId) {
@@ -43,15 +45,12 @@ export async function POST(request: Request, context: RouteContext) {
         await chatService.deleteAllChatsForAnonymousUser(principal.userId);
       }
       void notifyChatsSync(principal.userId);
-      return jsonWithPrincipal(
-        { data: { ...result, anonymousQuotaExhausted } },
-        principal,
-      );
+      return jsonOkWithPrincipal(principal, { ...result, anonymousQuotaExhausted });
     }
 
     void notifyChatsSync(principal.userId);
-    return jsonWithPrincipal({ data: result }, principal);
+    return jsonOkWithPrincipal(principal, result);
   } catch {
-    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
+    return jsonErrWithPrincipal(principal, "Invalid request payload", 400);
   }
 }

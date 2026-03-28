@@ -1,4 +1,4 @@
-import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import { jsonOkWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
 import { usageService } from "@/server/services/usage.service";
 
 export async function GET(request: Request) {
@@ -6,27 +6,17 @@ export async function GET(request: Request) {
 
   if (principal.anonSessionId) {
     const usage = await usageService.getUsage(principal.anonSessionId);
-    return jsonWithPrincipal(
-      {
-        data: {
-          ...usage,
-          isAnonymous: true,
-        },
-      },
-      principal,
-    );
+    return jsonOkWithPrincipal(principal, {
+      ...usage,
+      isAnonymous: true,
+    });
   }
 
-  return jsonWithPrincipal(
-    {
-      data: {
-        sessionId: null,
-        freeLimit: null,
-        usedQuestions: null,
-        remainingQuestions: null,
-        isAnonymous: false,
-      },
-    },
-    principal,
-  );
+  return jsonOkWithPrincipal(principal, {
+    sessionId: null,
+    freeLimit: null,
+    usedQuestions: null,
+    remainingQuestions: null,
+    isAnonymous: false,
+  });
 }
