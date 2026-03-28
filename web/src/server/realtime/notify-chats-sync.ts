@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { CHATS_SYNC_EVENT, chatsSyncChannelName } from "@/lib/realtime/chats-sync-channel";
 
-/**
- * Notifies other tabs/devices for this principal via Supabase Realtime Broadcast (REST).
- * No-op if Supabase env is not configured.
- */
 export async function notifyChatsSync(principalUserId: string): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

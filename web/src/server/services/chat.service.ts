@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_CHAT_TITLE } from "@/lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
 import { FUTURE_ASSISTANT_ANSWER } from "../constants/assistant-placeholder";
 import { chatRepository } from "../repositories/chat.repository";
@@ -8,9 +9,14 @@ const createChatBodySchema = z.object({
   title: z.string().min(1).max(120).optional(),
 });
 
-const renameChatSchema = z.object({
-  title: z.string().min(1).max(120),
-});
+const patchChatSchema = z
+  .object({
+    title: z.string().min(1).max(120).optional(),
+    pinned: z.boolean().optional(),
+  })
+  .refine((b) => b.title !== undefined || b.pinned !== undefined, {
+    message: "Provide title and/or pinned",
+  });
 
 const createMessageSchema = z.object({
   role: z.enum(["user", "assistant", "system"] satisfies [ChatRole, ...ChatRole[]]),
@@ -28,8 +34,15 @@ export const chatService = {
   },
 
   async createChat(userId: string, input: unknown) {
-    const { title } = createChatBodySchema.parse(input ?? {});
-    return chatRepository.create(userId, title ?? "Untitled chat");
+    const { title: titleInput } = createChatBodySchema.parse(input ?? {});
+    const resolvedTitle = titleInput ?? DEFAULT_CHAT_TITLE;
+
+    if (resolvedTitle === DEFAULT_CHAT_TITLE) {
+      const reusable = await chatRepository.findLatestEmptyChatWithTitle(userId, DEFAULT_CHAT_TITLE);
+      if (reusable) return reusable;
+    }
+
+    return chatRepository.create(userId, resolvedTitle);
   },
 
   async getChatForUser(chatId: string, userId: string) {
@@ -40,12 +53,12 @@ export const chatService = {
     return chat;
   },
 
-  async renameChat(chatId: string, userId: string, input: unknown) {
+  async patchChat(chatId: string, userId: string, input: unknown) {
     const chat = await this.getChatForUser(chatId, userId);
     if (!chat) return null;
 
-    const { title } = renameChatSchema.parse(input);
-    return chatRepository.updateTitle(chatId, title);
+    const patch = patchChatSchema.parse(input);
+    return chatRepository.updateChat(chatId, patch);
   },
 
   async deleteChat(chatId: string, userId: string) {
@@ -55,7 +68,6 @@ export const chatService = {
     return chatRepository.delete(chatId);
   },
 
-  /** Strips persisted anonymous threads after free quota is exhausted (messages cascade). */
   async deleteAllChatsForAnonymousUser(userId: string): Promise<number> {
     if (!userId.startsWith(ANON_USER_PREFIX)) return 0;
     return chatRepository.deleteAllByUserId(userId);
@@ -76,9 +88,6 @@ export const chatService = {
     return chatRepository.addMessage(chatId, role, content);
   },
 
-  /**
-   * One round-trip from the client: user message, optional rename, placeholder assistant reply.
-   */
   async sendTurnWithPlaceholder(
     chatId: string,
     userId: string,
@@ -97,7 +106,7 @@ export const chatService = {
 
     let title = chat.title;
     if (renameTitle) {
-      const updated = await chatRepository.updateTitle(chatId, renameTitle);
+      const updated = await chatRepository.updateChat(chatId, { title: renameTitle });
       if (updated) title = updated.title;
     }
 

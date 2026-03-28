@@ -2,9 +2,21 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "@/server/types/chat";
-import { ApiError, apiGet, apiPost } from "@/lib/api-client";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api-client";
+import { DEFAULT_CHAT_TITLE } from "@/lib/chat-defaults";
 import type { ChatTurnData, MeUsageData } from "@/lib/api-types/chat";
 import { ChatComposer } from "./chat-composer";
 import { mapApiMessage } from "./chat-format";
@@ -13,20 +25,57 @@ import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
 import { ChatUsageBanner } from "./chat-usage-banner";
 
+function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
+  const ap = Boolean(a.pinned);
+  const bp = Boolean(b.pinned);
+  if (ap !== bp) return ap ? -1 : 1;
+  return a.createdAt < b.createdAt ? 1 : -1;
+}
+
 export function ChatShell() {
   const queryClient = useQueryClient();
   const { isLoaded, userId } = useAuth();
   const isGuestMode = isLoaded && !userId;
 
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [sidebarRenamingChatId, setSidebarRenamingChatId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [showSidebar, setShowSidebar] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => {
+      if (mq.matches) setShowSidebar(false);
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+
+  const updateSelectedChatId = useCallback((value: SetStateAction<string | null>) => {
+    setSidebarRenamingChatId(null);
+    setSelectedChatId(value);
+  }, []);
+
+  const closeMobileSidebar = useCallback(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      setShowSidebar(false);
+    }
+  }, []);
+
+  const handleSidebarSelectChat = useCallback(
+    (id: string) => {
+      updateSelectedChatId(id);
+      closeMobileSidebar();
+    },
+    [updateSelectedChatId, closeMobileSidebar],
+  );
 
   const chatsQuery = useQuery({
     queryKey: ["chats"],
@@ -65,12 +114,51 @@ export function ChatShell() {
   const createChatMutation = useMutation({
     mutationFn: () => apiPost<ApiChat>("/api/chats", {}),
     onSuccess: (chat) => {
-      queryClient.setQueryData<ChatWithMessages>(["chat", chat.id], {
-        ...chat,
+      const row: ApiChat = { ...chat, pinned: Boolean(chat.pinned) };
+      queryClient.setQueryData<ChatWithMessages>(["chat", row.id], {
+        ...row,
         messages: [],
       });
+      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+        const without = previous?.filter((c) => c.id !== row.id) ?? [];
+        return [...without, row].sort(sortChatsForSidebar);
+      });
       void queryClient.invalidateQueries({ queryKey: ["chats"] });
-      setSelectedChatId(chat.id);
+      updateSelectedChatId(row.id);
+      closeMobileSidebar();
+    },
+  });
+
+  const patchChatMutation = useMutation({
+    mutationFn: ({ chatId, ...body }: { chatId: string; title?: string; pinned?: boolean }) =>
+      apiPatch<ApiChat>(`/api/chats/${chatId}`, body),
+    onSuccess: (chat) => {
+      queryClient.setQueryData<ChatWithMessages>(["chat", chat.id], (previous) =>
+        previous ? { ...previous, title: chat.title, pinned: chat.pinned, updatedAt: chat.updatedAt } : previous,
+      );
+      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+        if (!previous) return previous;
+        const next = previous.map((c) => (c.id === chat.id ? chat : c));
+        return [...next].sort(sortChatsForSidebar);
+      });
+      void queryClient.invalidateQueries({ queryKey: ["chats"] });
+    },
+  });
+
+  const deleteChatMutation = useMutation({
+    mutationFn: (chatId: string) => apiDelete(`/api/chats/${chatId}`),
+    onSuccess: (_, chatId) => {
+      queryClient.removeQueries({ queryKey: ["chat", chatId] });
+      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+        const next = previous?.filter((c) => c.id !== chatId) ?? [];
+        return [...next].sort(sortChatsForSidebar);
+      });
+      updateSelectedChatId((current) => {
+        if (current !== chatId) return current;
+        const list = queryClient.getQueryData<ApiChat[]>(["chats"]) ?? [];
+        return list[0]?.id ?? null;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["chats"] });
     },
   });
 
@@ -118,7 +206,7 @@ export function ChatShell() {
       if (error instanceof ApiError && error.code === "FREE_LIMIT_EXCEEDED") {
         queryClient.setQueryData<ApiChat[]>(["chats"], []);
         queryClient.removeQueries({ queryKey: ["chat", variables.chatId] });
-        setSelectedChatId(null);
+        updateSelectedChatId(null);
         void queryClient.invalidateQueries({ queryKey: ["usage"] });
         setDraft(variables.content);
         return;
@@ -156,7 +244,7 @@ export function ChatShell() {
                 }
               : chat,
           );
-          return [...next].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+          return [...next].sort(sortChatsForSidebar);
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["usage"] });
@@ -192,7 +280,7 @@ export function ChatShell() {
         const list = chatsQuery.data ?? [];
         if (list.length > 0) {
           chatId = list[0].id;
-          setSelectedChatId(chatId);
+          updateSelectedChatId(chatId);
         } else {
           try {
             const chat = await createChatMutation.mutateAsync();
@@ -223,7 +311,7 @@ export function ChatShell() {
       queryClient.getQueryData<ChatWithMessages>(["chat", chatId]) ?? chatDetailQuery.data;
     const wasEmpty = (detail?.messages.length ?? 0) === 0;
     const currentTitle = detail?.title ?? "";
-    const shouldRename = wasEmpty && (currentTitle === "Untitled chat" || currentTitle.length === 0);
+    const shouldRename = wasEmpty && (currentTitle === DEFAULT_CHAT_TITLE || currentTitle.length === 0);
     const nextTitle = content.slice(0, 120);
 
     setDraft("");
@@ -241,7 +329,7 @@ export function ChatShell() {
       if (isGuestMode) {
         const list = chatsQuery.data ?? [];
         if (list.length > 0) {
-          setSelectedChatId(list[0].id);
+          updateSelectedChatId(list[0].id);
         } else if (createChatMutation.isPending) {
           return;
         } else {
@@ -295,8 +383,11 @@ export function ChatShell() {
     anonFreeLimitReached ||
     (!draft.trim() && !selectedFile && !selectedImage);
 
-  const composerBusy = sendMutation.isPending || (selectedChatId === null && createChatMutation.isPending);
-  const attachmentDisabled = composerBusy || anonFreeLimitReached;
+  const attachmentDisabled =
+    sendMutation.isPending ||
+    (selectedChatId === null && createChatMutation.isPending) ||
+    anonFreeLimitReached;
+  const textareaDisabled = sendMutation.isPending || anonFreeLimitReached;
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -305,8 +396,6 @@ export function ChatShell() {
     if (sendDisabled) return;
     formRef.current?.requestSubmit();
   };
-
-  const showChatSidebar = !isGuestMode && showSidebar;
 
   const removeFile = () => {
     setSelectedFile(null);
@@ -318,16 +407,46 @@ export function ChatShell() {
     if (imageInputRef.current) imageInputRef.current.value = "";
   };
 
+  useEffect(() => {
+    if (isGuestMode || !showSidebar) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setShowSidebar(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showSidebar, isGuestMode]);
+
+  useEffect(() => {
+    if (isGuestMode || !showSidebar) return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    if (!mq.matches) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [showSidebar, isGuestMode]);
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      {showChatSidebar ? (
+      {!isGuestMode ? (
         <ChatSidebar
           activeChatId={activeChatId}
           chats={chatsForSidebar}
           createPending={createChatMutation.isPending}
+          deletePending={deleteChatMutation.isPending}
           isBootLoading={isBootLoading}
+          onDeleteChat={(chatId) => {
+            if (!window.confirm("Delete this chat? This cannot be undone.")) return;
+            deleteChatMutation.mutate(chatId);
+          }}
           onNewChat={() => createChatMutation.mutate()}
-          onSelectChat={setSelectedChatId}
+          onPatchChat={(input) => patchChatMutation.mutate(input)}
+          onRenamingChatIdChange={setSidebarRenamingChatId}
+          onSelectChat={handleSidebarSelectChat}
+          open={showSidebar}
+          patchPending={patchChatMutation.isPending}
+          renamingChatId={sidebarRenamingChatId}
         />
       ) : null}
 
@@ -336,6 +455,7 @@ export function ChatShell() {
           activeChatId={activeChatId}
           activeTitle={activeTitle}
           isGuestMode={isGuestMode}
+          menuOpen={showSidebar}
           onToggleSidebar={() => setShowSidebar((prev) => !prev)}
           showMenu={!isGuestMode}
         />
@@ -358,7 +478,7 @@ export function ChatShell() {
         <ChatComposer
           anonFreeLimitReached={anonFreeLimitReached}
           attachmentDisabled={attachmentDisabled}
-          composerBusy={composerBusy}
+          textareaDisabled={textareaDisabled}
           draft={draft}
           fileInputRef={fileInputRef}
           formRef={formRef}
@@ -378,6 +498,15 @@ export function ChatShell() {
           textareaRef={textareaRef}
         />
       </main>
+
+      {!isGuestMode && showSidebar ? (
+        <button
+          aria-label="Close menu"
+          className="fixed bottom-0 left-0 right-0 top-14 z-[40] bg-black/40 backdrop-blur-[2px] md:hidden"
+          onClick={() => setShowSidebar(false)}
+          type="button"
+        />
+      ) : null}
     </div>
   );
 }

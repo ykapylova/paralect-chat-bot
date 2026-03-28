@@ -5,6 +5,7 @@ import { Menu } from "lucide-react";
 type ChatHeaderProps = {
   isGuestMode: boolean;
   showMenu: boolean;
+  menuOpen: boolean;
   onToggleSidebar: () => void;
   activeChatId: string | null;
   activeTitle: string;
@@ -13,20 +14,23 @@ type ChatHeaderProps = {
 export function ChatHeader({
   isGuestMode,
   showMenu,
+  menuOpen,
   onToggleSidebar,
   activeChatId,
   activeTitle,
 }: ChatHeaderProps) {
   return (
-    <header className="flex h-14 items-center justify-between px-4">
+    <header className="relative z-[50] flex h-14 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--background)] px-4 md:border-b-0">
       <div className="flex items-center gap-2">
         {showMenu ? (
           <button
-            className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? "Close sidebar" : "Open sidebar"}
+            className="shrink-0 rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
             onClick={onToggleSidebar}
             type="button"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" strokeWidth={2} />
           </button>
         ) : null}
         <span className="text-sm font-medium">

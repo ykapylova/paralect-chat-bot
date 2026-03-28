@@ -12,6 +12,7 @@ export type Chat = {
   id: string;
   userId: string;
   title: string;
+  pinned: boolean;
   updatedAt: string;
   createdAt: string;
 };

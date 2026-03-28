@@ -12,9 +12,6 @@ import {
   principalUserIdFromAnonSession,
 } from "@/lib/realtime/chats-sync-channel";
 
-/**
- * Keeps TanStack Query `["chats"]` in sync across tabs via Supabase Realtime Broadcast.
- */
 export function ChatsRealtimeSync() {
   const queryClient = useQueryClient();
   const { isLoaded, userId } = useAuth();

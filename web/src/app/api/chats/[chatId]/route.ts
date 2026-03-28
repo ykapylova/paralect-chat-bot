@@ -29,7 +29,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const body = await request.json();
-    const chat = await chatService.renameChat(chatId, principal.userId, body);
+    const chat = await chatService.patchChat(chatId, principal.userId, body);
 
     if (!chat) {
       return jsonErrWithPrincipal(principal, "Chat not found", 404);

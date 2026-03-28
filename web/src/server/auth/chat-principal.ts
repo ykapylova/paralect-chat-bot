@@ -44,9 +44,6 @@ function parseCookieHeader(header: string | null): Record<string, string> {
   return out;
 }
 
-/**
- * Clerk user id when signed in; otherwise stable anonymous id backed by HttpOnly cookie.
- */
 export async function resolveChatPrincipal(request: Request): Promise<ChatPrincipal> {
   const { userId: clerkId } = await auth();
   if (clerkId) {
@@ -79,7 +76,6 @@ export function withPrincipalCookies(
   return response;
 }
 
-/** Prefer `jsonOkWithPrincipal` / `jsonErrWithPrincipal` / `jsonAckWithPrincipal` in route handlers. */
 export function jsonWithPrincipal(
   body: unknown,
   principal: ChatPrincipal,
