@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireUserId } from "@/server/auth/require-user";
 import { chatService } from "@/server/services/chat.service";
 
 type RouteContext = {
@@ -6,30 +7,31 @@ type RouteContext = {
 };
 
 export async function GET(_: Request, context: RouteContext) {
-  const { chatId } = await context.params;
-  const chat = await chatService.getChat(chatId);
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
 
-  if (!chat) {
+  const { chatId } = await context.params;
+  const messages = await chatService.listMessages(chatId, authResult.userId);
+
+  if (!messages) {
     return NextResponse.json({ error: "Chat not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ data: await chatService.listMessages(chatId) });
+  return NextResponse.json({ data: messages });
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const { chatId } = await context.params;
-  const chat = await chatService.getChat(chatId);
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
 
-  if (!chat) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
-  }
+  const { chatId } = await context.params;
 
   try {
     const body = await request.json();
-    const message = await chatService.addMessage(chatId, body);
+    const message = await chatService.addMessage(chatId, authResult.userId, body);
 
     if (!message) {
-      return NextResponse.json({ error: "Unable to add message" }, { status: 400 });
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
     }
 
     return NextResponse.json({ data: message }, { status: 201 });

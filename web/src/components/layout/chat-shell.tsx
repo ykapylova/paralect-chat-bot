@@ -1,5 +1,6 @@
 "use client";
 
+import { UserButton } from "@clerk/nextjs";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Paperclip,
@@ -238,7 +239,10 @@ export function ChatShell() {
             </button>
             <span className="text-sm font-medium">Chatbot</span>
           </div>
-          <span className="text-xs text-[var(--muted)]">GPT-4.1 mini</span>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-xs text-[var(--muted)] sm:inline">GPT-4.1 mini</span>
+            <UserButton />
+          </div>
         </header>
 
         <section className="flex-1 overflow-y-auto px-4 pb-32 pt-6">

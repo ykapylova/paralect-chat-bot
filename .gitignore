@@ -18,7 +18,7 @@ pnpm-debug.log*
 
 # Node / Next.js
 node_modules/
-.next/
+web/.next/
 out/
 dist/
 coverage/
