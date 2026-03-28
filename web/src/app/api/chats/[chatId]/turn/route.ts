@@ -1,4 +1,5 @@
 import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import { notifyChatsSync } from "@/server/realtime/notify-chats-sync";
 import { chatService } from "@/server/services/chat.service";
 import { usageService } from "@/server/services/usage.service";
 
@@ -13,6 +14,7 @@ export async function POST(request: Request, context: RouteContext) {
     const allowed = await usageService.hasAnonymousQuota(principal.anonSessionId);
     if (!allowed) {
       await chatService.deleteAllChatsForAnonymousUser(principal.userId);
+      void notifyChatsSync(principal.userId);
       return jsonWithPrincipal(
         {
           error: "You have used all free questions. Sign in to continue chatting.",
@@ -40,12 +42,14 @@ export async function POST(request: Request, context: RouteContext) {
       if (anonymousQuotaExhausted) {
         await chatService.deleteAllChatsForAnonymousUser(principal.userId);
       }
+      void notifyChatsSync(principal.userId);
       return jsonWithPrincipal(
         { data: { ...result, anonymousQuotaExhausted } },
         principal,
       );
     }
 
+    void notifyChatsSync(principal.userId);
     return jsonWithPrincipal({ data: result }, principal);
   } catch {
     return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
