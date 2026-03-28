@@ -1,17 +1,5 @@
 const jsonHeaders = { "Content-Type": "application/json" };
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code?: string;
-
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
 async function parseError(res: Response, json: unknown): Promise<string> {
   if (json && typeof json === "object" && "error" in json && typeof (json as { error: string }).error === "string") {
     return (json as { error: string }).error;
@@ -19,19 +7,11 @@ async function parseError(res: Response, json: unknown): Promise<string> {
   return `Request failed (${res.status})`;
 }
 
-function readErrorCode(json: unknown): string | undefined {
-  if (!json || typeof json !== "object") return undefined;
-  if ("code" in json && typeof (json as { code: unknown }).code === "string") {
-    return (json as { code: string }).code;
-  }
-  return undefined;
-}
-
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
   const json: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(await parseError(res, json), res.status, readErrorCode(json));
+    throw new Error(await parseError(res, json));
   }
   if (!json || typeof json !== "object" || !("data" in json)) {
     throw new Error("Invalid API response");
@@ -48,7 +28,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   });
   const json: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(await parseError(res, json), res.status, readErrorCode(json));
+    throw new Error(await parseError(res, json));
   }
   if (!json || typeof json !== "object" || !("data" in json)) {
     throw new Error("Invalid API response");
@@ -65,7 +45,7 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   });
   const json: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(await parseError(res, json), res.status, readErrorCode(json));
+    throw new Error(await parseError(res, json));
   }
   if (!json || typeof json !== "object" || !("data" in json)) {
     throw new Error("Invalid API response");

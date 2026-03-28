@@ -8,13 +8,6 @@
       "when": 1774711455326,
       "tag": "0000_faulty_pixie",
       "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1774712000000,
-      "tag": "0001_anonymous_usage",
-      "breakpoints": true
     }
   ]
 }

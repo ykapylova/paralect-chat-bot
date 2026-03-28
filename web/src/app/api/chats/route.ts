@@ -1,20 +1,24 @@
-import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import { NextResponse } from "next/server";
+import { requireUserId } from "@/server/auth/require-user";
 import { chatService } from "@/server/services/chat.service";
 
-export async function GET(request: Request) {
-  const principal = await resolveChatPrincipal(request);
-  const chats = await chatService.listChats(principal.userId);
-  return jsonWithPrincipal({ data: chats }, principal);
+export async function GET() {
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
+
+  const chats = await chatService.listChats(authResult.userId);
+  return NextResponse.json({ data: chats });
 }
 
 export async function POST(request: Request) {
-  const principal = await resolveChatPrincipal(request);
+  const authResult = await requireUserId();
+  if (authResult instanceof NextResponse) return authResult;
 
   try {
     const body = await request.json();
-    const chat = await chatService.createChat(principal.userId, body);
-    return jsonWithPrincipal({ data: chat }, principal, { status: 201 });
+    const chat = await chatService.createChat(authResult.userId, body);
+    return NextResponse.json({ data: chat }, { status: 201 });
   } catch {
-    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
+    return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
   }
 }

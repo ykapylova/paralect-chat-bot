@@ -88,17 +88,6 @@ export const chatRepository = {
     return deleted.length > 0;
   },
 
-  /** Messages removed via FK onDelete cascade. */
-  async deleteAllByUserId(userId: string): Promise<number> {
-    const db = getDb();
-    const deleted = await db
-      .delete(chatsTable)
-      .where(eq(chatsTable.userId, userId))
-      .returning({ id: chatsTable.id });
-
-    return deleted.length;
-  },
-
   async listMessages(chatId: string): Promise<ChatMessage[]> {
     const db = getDb();
     const rows = await db
