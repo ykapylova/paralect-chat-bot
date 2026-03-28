@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+
 import { requireUserId } from "@/server/auth/require-user";
+import { jsonErr, jsonOk } from "@/server/http/json-api";
 import { uploadService } from "@/server/services/upload.service";
 
 export async function POST(request: Request) {
@@ -9,8 +11,8 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const image = uploadService.registerImage(body);
-    return NextResponse.json({ data: image }, { status: 201 });
+    return jsonOk(image, { status: 201 });
   } catch {
-    return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+    return jsonErr("Invalid request payload", 400);
   }
 }

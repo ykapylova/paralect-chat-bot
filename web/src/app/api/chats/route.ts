@@ -1,11 +1,15 @@
-import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import {
+  jsonErrWithPrincipal,
+  jsonOkWithPrincipal,
+  resolveChatPrincipal,
+} from "@/server/auth/chat-principal";
 import { notifyChatsSync } from "@/server/realtime/notify-chats-sync";
 import { chatService } from "@/server/services/chat.service";
 
 export async function GET(request: Request) {
   const principal = await resolveChatPrincipal(request);
   const chats = await chatService.listChats(principal.userId);
-  return jsonWithPrincipal({ data: chats }, principal);
+  return jsonOkWithPrincipal(principal, chats);
 }
 
 export async function POST(request: Request) {
@@ -15,8 +19,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const chat = await chatService.createChat(principal.userId, body);
     void notifyChatsSync(principal.userId);
-    return jsonWithPrincipal({ data: chat }, principal, { status: 201 });
+    return jsonOkWithPrincipal(principal, chat, { status: 201 });
   } catch {
-    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
+    return jsonErrWithPrincipal(principal, "Invalid request payload", 400);
   }
 }

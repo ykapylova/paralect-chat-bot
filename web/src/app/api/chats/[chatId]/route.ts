@@ -1,4 +1,9 @@
-import { jsonWithPrincipal, resolveChatPrincipal } from "@/server/auth/chat-principal";
+import {
+  jsonAckWithPrincipal,
+  jsonErrWithPrincipal,
+  jsonOkWithPrincipal,
+  resolveChatPrincipal,
+} from "@/server/auth/chat-principal";
 import { notifyChatsSync } from "@/server/realtime/notify-chats-sync";
 import { chatService } from "@/server/services/chat.service";
 
@@ -12,10 +17,10 @@ export async function GET(request: Request, context: RouteContext) {
   const chat = await chatService.getChatForUser(chatId, principal.userId);
 
   if (!chat) {
-    return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
+    return jsonErrWithPrincipal(principal, "Chat not found", 404);
   }
 
-  return jsonWithPrincipal({ data: chat }, principal);
+  return jsonOkWithPrincipal(principal, chat);
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
@@ -27,13 +32,13 @@ export async function PATCH(request: Request, context: RouteContext) {
     const chat = await chatService.renameChat(chatId, principal.userId, body);
 
     if (!chat) {
-      return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
+      return jsonErrWithPrincipal(principal, "Chat not found", 404);
     }
 
     void notifyChatsSync(principal.userId);
-    return jsonWithPrincipal({ data: chat }, principal);
+    return jsonOkWithPrincipal(principal, chat);
   } catch {
-    return jsonWithPrincipal({ error: "Invalid request payload" }, principal, { status: 400 });
+    return jsonErrWithPrincipal(principal, "Invalid request payload", 400);
   }
 }
 
@@ -43,9 +48,9 @@ export async function DELETE(request: Request, context: RouteContext) {
   const deleted = await chatService.deleteChat(chatId, principal.userId);
 
   if (!deleted) {
-    return jsonWithPrincipal({ error: "Chat not found" }, principal, { status: 404 });
+    return jsonErrWithPrincipal(principal, "Chat not found", 404);
   }
 
   void notifyChatsSync(principal.userId);
-  return jsonWithPrincipal({ success: true }, principal);
+  return jsonAckWithPrincipal(principal);
 }

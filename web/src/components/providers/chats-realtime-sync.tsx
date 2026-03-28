@@ -4,17 +4,13 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useMemo } from "react";
+import type { MeUsageData } from "@/lib/api-types/chat";
 import { apiGet } from "@/lib/api-client";
 import {
   CHATS_SYNC_EVENT,
   chatsSyncChannelName,
   principalUserIdFromAnonSession,
 } from "@/lib/realtime/chats-sync-channel";
-
-type UsagePayload = {
-  sessionId: string | null;
-  isAnonymous: boolean;
-};
 
 /**
  * Keeps TanStack Query `["chats"]` in sync across tabs via Supabase Realtime Broadcast.
@@ -25,7 +21,7 @@ export function ChatsRealtimeSync() {
 
   const usageQuery = useQuery({
     queryKey: ["usage"],
-    queryFn: () => apiGet<UsagePayload>("/api/me/usage"),
+    queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
     enabled: isLoaded && !userId,
   });
 

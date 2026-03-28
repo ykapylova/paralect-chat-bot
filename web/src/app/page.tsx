@@ -1,4 +1,4 @@
-import { ChatShell } from "../components/layout/chat-shell";
+import { ChatShell } from "../components/chat/chat-shell";
 
 export default function HomePage() {
   return <ChatShell />;
