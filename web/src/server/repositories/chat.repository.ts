@@ -1,7 +1,20 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, notExists } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { chatsTable, messagesTable } from "../db/schema";
 import { Chat, ChatMessage, ChatWithMessages } from "../types/chat";
+
+type ChatRow = typeof chatsTable.$inferSelect;
+
+function toChat(row: ChatRow): Chat {
+  return {
+    id: row.id,
+    userId: row.userId,
+    title: row.title,
+    pinned: row.pinned,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 export const chatRepository = {
   async listByUser(userId: string): Promise<Chat[]> {
@@ -10,15 +23,29 @@ export const chatRepository = {
       .select()
       .from(chatsTable)
       .where(eq(chatsTable.userId, userId))
-      .orderBy(desc(chatsTable.updatedAt));
+      .orderBy(desc(chatsTable.pinned), desc(chatsTable.createdAt));
 
-    return rows.map((row) => ({
-      id: row.id,
-      userId: row.userId,
-      title: row.title,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    }));
+    return rows.map(toChat);
+  },
+
+  async findLatestEmptyChatWithTitle(userId: string, title: string): Promise<Chat | null> {
+    const db = getDb();
+    const [row] = await db
+      .select()
+      .from(chatsTable)
+      .where(
+        and(
+          eq(chatsTable.userId, userId),
+          eq(chatsTable.title, title),
+          notExists(
+            db.select().from(messagesTable).where(eq(messagesTable.chatId, chatsTable.id)),
+          ),
+        ),
+      )
+      .orderBy(desc(chatsTable.createdAt))
+      .limit(1);
+
+    return row ? toChat(row) : null;
   },
 
   async create(userId: string, title: string): Promise<Chat> {
@@ -28,13 +55,7 @@ export const chatRepository = {
       .values({ userId, title })
       .returning();
 
-    return {
-      id: inserted.id,
-      userId: inserted.userId,
-      title: inserted.title,
-      createdAt: inserted.createdAt,
-      updatedAt: inserted.updatedAt,
-    };
+    return toChat(inserted);
   },
 
   async findById(chatId: string): Promise<ChatWithMessages | null> {
@@ -50,32 +71,31 @@ export const chatRepository = {
     const messages = await this.listMessages(chatId);
 
     return {
-      id: chat.id,
-      userId: chat.userId,
-      title: chat.title,
-      createdAt: chat.createdAt,
-      updatedAt: chat.updatedAt,
+      ...toChat(chat),
       messages,
     };
   },
 
-  async updateTitle(chatId: string, title: string): Promise<Chat | null> {
+  async updateChat(
+    chatId: string,
+    fields: { title?: string; pinned?: boolean },
+  ): Promise<Chat | null> {
+    if (fields.title === undefined && fields.pinned === undefined) return null;
+
     const db = getDb();
+    const patch: Partial<Pick<ChatRow, "title" | "pinned">> & { updatedAt: string } = {
+      updatedAt: new Date().toISOString(),
+    };
+    if (fields.title !== undefined) patch.title = fields.title;
+    if (fields.pinned !== undefined) patch.pinned = fields.pinned;
+
     const [updated] = await db
       .update(chatsTable)
-      .set({ title, updatedAt: new Date().toISOString() })
+      .set(patch)
       .where(eq(chatsTable.id, chatId))
       .returning();
 
-    if (!updated) return null;
-
-    return {
-      id: updated.id,
-      userId: updated.userId,
-      title: updated.title,
-      createdAt: updated.createdAt,
-      updatedAt: updated.updatedAt,
-    };
+    return updated ? toChat(updated) : null;
   },
 
   async delete(chatId: string): Promise<boolean> {
@@ -88,7 +108,6 @@ export const chatRepository = {
     return deleted.length > 0;
   },
 
-  /** Messages removed via FK onDelete cascade. */
   async deleteAllByUserId(userId: string): Promise<number> {
     const db = getDb();
     const deleted = await db

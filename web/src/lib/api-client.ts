@@ -72,3 +72,19 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   }
   return (json as { data: T }).data;
 }
+
+export async function apiDelete(path: string): Promise<void> {
+  const res = await fetch(path, { method: "DELETE", credentials: "include" });
+  const json: unknown = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(await parseError(res, json), res.status, readErrorCode(json));
+  }
+  if (
+    !json ||
+    typeof json !== "object" ||
+    !("success" in json) ||
+    (json as { success: unknown }).success !== true
+  ) {
+    throw new Error("Invalid API response");
+  }
+}

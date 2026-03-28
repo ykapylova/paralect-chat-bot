@@ -15,6 +15,20 @@
       "when": 1774712000000,
       "tag": "0001_anonymous_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774720000000,
+      "tag": "0002_chat_pinned",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1774732015287,
+      "tag": "0003_even_nightmare",
+      "breakpoints": true
     }
   ]
 }

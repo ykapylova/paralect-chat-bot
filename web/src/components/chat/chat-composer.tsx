@@ -19,7 +19,7 @@ type ChatComposerProps = {
   onPickImage: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenAttachmentPicker: (kind: "file" | "image") => void;
   sendDisabled: boolean;
-  composerBusy: boolean;
+  textareaDisabled: boolean;
   attachmentDisabled: boolean;
   anonFreeLimitReached: boolean;
 };
@@ -42,7 +42,7 @@ export function ChatComposer({
   onPickImage,
   onOpenAttachmentPicker,
   sendDisabled,
-  composerBusy,
+  textareaDisabled,
   attachmentDisabled,
   anonFreeLimitReached,
 }: ChatComposerProps) {
@@ -83,7 +83,7 @@ export function ChatComposer({
           <div className="grid grid-cols-[1fr_auto] gap-x-2.5 px-0.5">
             <textarea
               className="min-h-[44px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={composerBusy || anonFreeLimitReached}
+              disabled={textareaDisabled}
               onChange={(event) => onDraftChange(event.target.value)}
               onFocus={onComposerFocus}
               onKeyDown={onComposerKeyDown}
