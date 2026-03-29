@@ -6,6 +6,7 @@ import { notifyChatsSync } from "server/realtime/notify-chats-sync";
 import { chatRepository } from "server/repositories/chat.repository";
 import { chatService } from "server/services/chat.service";
 import { createChatCompletionStream } from "server/services/openai-chat.service";
+import { deleteOpenAiFile } from "server/services/openai-document-upload.service";
 import { usageService } from "server/services/usage.service";
 
 type RouteContext = {
@@ -58,9 +59,13 @@ export async function POST(request: Request, context: RouteContext) {
     return jsonErrWithPrincipal(principal, "Chat not found", 404);
   }
 
-  const { userMessage, assistantMessage, title, openaiMessages } = prepared;
+  const { userMessage, assistantMessage, title, openaiMessages, ephemeralOpenAiFileIds } = prepared;
   const assistantId = assistantMessage.id;
   const encoder = new TextEncoder();
+
+  const cleanupOpenAiFiles = async () => {
+    await Promise.all(ephemeralOpenAiFileIds.map((id) => deleteOpenAiFile(id)));
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -75,6 +80,7 @@ export async function POST(request: Request, context: RouteContext) {
         try {
           completionStream = await createChatCompletionStream(openaiMessages);
         } catch (err) {
+          await cleanupOpenAiFiles();
           const msg = err instanceof Error ? err.message : "Model request failed";
           await chatRepository.updateMessageContent(
             assistantId,
@@ -104,6 +110,8 @@ export async function POST(request: Request, context: RouteContext) {
           send({ type: "error", message: msg });
           void notifyChatsSync(principal.userId, { chatId });
           return;
+        } finally {
+          await cleanupOpenAiFiles();
         }
 
         const normalized = full.trim() || "(No response)";

@@ -7,6 +7,12 @@ import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
 import { chatRepository } from "../repositories/chat.repository";
 import { ChatMessage, ChatRole } from "../types/chat";
+import {
+  deleteOpenAiFile,
+  isTrustedSupabaseStorageUrl,
+  looksLikeChatDocumentUrl,
+  uploadChatDocumentFromUrl,
+} from "./openai-document-upload.service";
 
 const createChatBodySchema = z.object({
   title: z.string().min(1).max(120).optional(),
@@ -31,7 +37,9 @@ const sendTurnSchema = z.object({
   renameTitle: z.string().min(1).max(120).optional(),
 });
 
-const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+type ContentHit =
+  | { kind: "image"; start: number; end: number; alt: string; url: string }
+  | { kind: "doc"; start: number; end: number; label: string; url: string };
 
 function isPublicHttpUrl(s: string): boolean {
   try {
@@ -42,40 +50,47 @@ function isPublicHttpUrl(s: string): boolean {
   }
 }
 
-/**
- * Turns stored user text (with `![alt](url)` from uploads) into plain string or
- * OpenAI vision parts (`text` + `image_url`).
- */
-function userMessageContentForOpenAI(content: string): string | ChatCompletionContentPart[] {
-  const parts: ChatCompletionContentPart[] = [];
-  let lastIndex = 0;
-  const re = new RegExp(MARKDOWN_IMAGE_RE.source, "g");
+function collectContentHits(content: string): ContentHit[] {
+  const hits: ContentHit[] = [];
+  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
   let m: RegExpExecArray | null;
-
-  while ((m = re.exec(content)) !== null) {
-    const before = content.slice(lastIndex, m.index).replace(/\s+$/u, "");
-    if (before.length > 0) {
-      parts.push({ type: "text", text: before });
-    }
-    const url = m[2].trim();
-    if (isPublicHttpUrl(url)) {
-      parts.push({
-        type: "image_url",
-        image_url: { url, detail: "auto" },
-      });
-    } else {
-      parts.push({ type: "text", text: m[0] });
-    }
-    lastIndex = m.index + m[0].length;
+  while ((m = imgRe.exec(content)) !== null) {
+    hits.push({
+      kind: "image",
+      start: m.index,
+      end: m.index + m[0].length,
+      alt: m[1],
+      url: m[2].trim(),
+    });
   }
-
-  const tail = content.slice(lastIndex).replace(/^\s+/u, "");
-  if (tail.length > 0) {
-    parts.push({ type: "text", text: tail });
+  const linkRe = /\[([^\]]+)\]\((https?:[^)]+)\)/g;
+  while ((m = linkRe.exec(content)) !== null) {
+    if (m.index > 0 && content[m.index - 1] === "!") continue;
+    hits.push({
+      kind: "doc",
+      start: m.index,
+      end: m.index + m[0].length,
+      label: m[1],
+      url: m[2].trim(),
+    });
   }
+  hits.sort((a, b) => a.start - b.start);
+  const deduped: ContentHit[] = [];
+  let lastEnd = -1;
+  for (const h of hits) {
+    if (h.start < lastEnd) continue;
+    deduped.push(h);
+    lastEnd = h.end;
+  }
+  return deduped;
+}
 
+function finalizeUserContentParts(
+  parts: ChatCompletionContentPart[],
+  fallbackPlain: string,
+): string | ChatCompletionContentPart[] {
   if (parts.length === 0) {
-    return content;
+    return fallbackPlain;
   }
   if (parts.length === 1 && parts[0].type === "text") {
     return parts[0].text;
@@ -83,24 +98,214 @@ function userMessageContentForOpenAI(content: string): string | ChatCompletionCo
   return parts;
 }
 
-function toOpenAiMessages(rows: ChatMessage[]): ChatCompletionMessageParam[] {
-  const out: ChatCompletionMessageParam[] = [];
-  const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
-  if (systemFromEnv) {
-    out.push({ role: "system", content: systemFromEnv });
+function indexOfLastUserMessage(rows: ChatMessage[]): number {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].role === "user") return i;
   }
-  for (const m of rows) {
-    if (m.role === "assistant" && m.content.trim() === "") continue;
-    if (m.role === "system") {
-      out.push({ role: "system", content: m.content });
-    } else if (m.role === "user") {
-      const userContent = userMessageContentForOpenAI(m.content);
-      out.push({ role: "user", content: userContent });
+  return -1;
+}
+
+/**
+ * Builds OpenAI user `content` (text, image_url, file) from stored markdown.
+ * When `uploadDocuments` is true, chat document links are uploaded to OpenAI (`user_data`) and sent as `file_id`.
+ */
+async function buildUserMessageContentParts(
+  content: string,
+  ephemeralOpenAiFileIds: string[],
+  uploadDocuments: boolean,
+): Promise<string | ChatCompletionContentPart[]> {
+  const hits = collectContentHits(content);
+  if (hits.length === 0) {
+    return content;
+  }
+
+  const parts: ChatCompletionContentPart[] = [];
+  let cursor = 0;
+
+  for (const h of hits) {
+    const before = content.slice(cursor, h.start).replace(/\s+$/u, "");
+    if (before.length > 0) {
+      parts.push({ type: "text", text: before });
+    }
+    cursor = h.end;
+
+    if (h.kind === "image") {
+      if (isPublicHttpUrl(h.url)) {
+        parts.push({
+          type: "image_url",
+          image_url: { url: h.url, detail: "auto" },
+        });
+      } else {
+        parts.push({ type: "text", text: content.slice(h.start, h.end) });
+      }
+      continue;
+    }
+
+    if (
+      uploadDocuments &&
+      isTrustedSupabaseStorageUrl(h.url) &&
+      looksLikeChatDocumentUrl(h.label, h.url)
+    ) {
+      try {
+        const { fileId } = await uploadChatDocumentFromUrl(h.url, h.label);
+        ephemeralOpenAiFileIds.push(fileId);
+        parts.push({ type: "file", file: { file_id: fileId } });
+      } catch (err) {
+        console.error("[chat] OpenAI document upload failed", err);
+        parts.push({
+          type: "text",
+          text: `[Document: ${h.label}] (could not attach for the model)`,
+        });
+      }
     } else {
-      out.push({ role: "assistant", content: m.content });
+      parts.push({
+        type: "text",
+        text: `[Document: ${h.label}]`,
+      });
     }
   }
-  return out;
+
+  const tail = content.slice(cursor).replace(/^\s+/u, "");
+  if (tail.length > 0) {
+    parts.push({ type: "text", text: tail });
+  }
+
+  return finalizeUserContentParts(parts, content);
+}
+
+const MAX_OPENAI_CHAT_FILES = Math.max(
+  1,
+  Number.parseInt(process.env.CHAT_MAX_OPENAI_FILES ?? "8", 10) || 8,
+);
+
+/**
+ * Last user turn: re-attach every chat document from **earlier** user messages so
+ * follow-ups like "who is the contractor?" still receive the same PDF/DOCX context.
+ */
+async function buildLastUserOpenAiContent(
+  lastContent: string,
+  rowsBeforeLastUser: ChatMessage[],
+  ephemeralOpenAiFileIds: string[],
+): Promise<string | ChatCompletionContentPart[]> {
+  const uploadedUrls = new Set<string>();
+  const parts: ChatCompletionContentPart[] = [];
+  let filePartCount = 0;
+
+  const tryUploadDoc = async (h: ContentHit & { kind: "doc" }): Promise<void> => {
+    if (!isTrustedSupabaseStorageUrl(h.url) || !looksLikeChatDocumentUrl(h.label, h.url)) {
+      return;
+    }
+    if (uploadedUrls.has(h.url)) return;
+    if (filePartCount >= MAX_OPENAI_CHAT_FILES) {
+      parts.push({
+        type: "text",
+        text: `[Document: ${h.label}] (attachment limit reached for this request)`,
+      });
+      return;
+    }
+    uploadedUrls.add(h.url);
+    try {
+      const { fileId } = await uploadChatDocumentFromUrl(h.url, h.label);
+      ephemeralOpenAiFileIds.push(fileId);
+      parts.push({ type: "file", file: { file_id: fileId } });
+      filePartCount += 1;
+    } catch (err) {
+      console.error("[chat] OpenAI document upload failed", err);
+      uploadedUrls.delete(h.url);
+      parts.push({
+        type: "text",
+        text: `[Document: ${h.label}] (could not attach for the model)`,
+      });
+    }
+  };
+
+  for (const m of rowsBeforeLastUser) {
+    if (m.role !== "user") continue;
+    for (const h of collectContentHits(m.content)) {
+      if (h.kind === "doc") await tryUploadDoc(h);
+    }
+  }
+
+  if (filePartCount > 0) {
+    parts.push({
+      type: "text",
+      text: "The file(s) above were shared in earlier messages in this chat; use them to answer the user’s latest question.",
+    });
+  }
+
+  let cursor = 0;
+  const hits = collectContentHits(lastContent);
+  for (const h of hits) {
+    const before = lastContent.slice(cursor, h.start).replace(/\s+$/u, "");
+    if (before.length > 0) {
+      parts.push({ type: "text", text: before });
+    }
+    cursor = h.end;
+
+    if (h.kind === "image") {
+      if (isPublicHttpUrl(h.url)) {
+        parts.push({
+          type: "image_url",
+          image_url: { url: h.url, detail: "auto" },
+        });
+      } else {
+        parts.push({ type: "text", text: lastContent.slice(h.start, h.end) });
+      }
+      continue;
+    }
+
+    if (!isTrustedSupabaseStorageUrl(h.url) || !looksLikeChatDocumentUrl(h.label, h.url)) {
+      parts.push({ type: "text", text: `[Document: ${h.label}]` });
+      continue;
+    }
+    if (uploadedUrls.has(h.url)) {
+      continue;
+    }
+    await tryUploadDoc(h);
+  }
+
+  const tail = lastContent.slice(cursor).replace(/^\s+/u, "");
+  if (tail.length > 0) {
+    parts.push({ type: "text", text: tail });
+  }
+
+  return finalizeUserContentParts(parts, lastContent);
+}
+
+async function buildOpenAiMessages(rows: ChatMessage[]): Promise<{
+  messages: ChatCompletionMessageParam[];
+  ephemeralOpenAiFileIds: string[];
+}> {
+  const ephemeralOpenAiFileIds: string[] = [];
+  try {
+    const out: ChatCompletionMessageParam[] = [];
+    const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
+    if (systemFromEnv) {
+      out.push({ role: "system", content: systemFromEnv });
+    }
+    const lastUserIdx = indexOfLastUserMessage(rows);
+    const rowsBeforeLastUser = lastUserIdx >= 0 ? rows.slice(0, lastUserIdx) : [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const m = rows[i];
+      if (m.role === "assistant" && m.content.trim() === "") continue;
+      if (m.role === "system") {
+        out.push({ role: "system", content: m.content });
+      } else if (m.role === "user") {
+        const userContent =
+          i === lastUserIdx
+            ? await buildLastUserOpenAiContent(m.content, rowsBeforeLastUser, ephemeralOpenAiFileIds)
+            : await buildUserMessageContentParts(m.content, ephemeralOpenAiFileIds, false);
+        out.push({ role: "user", content: userContent });
+      } else {
+        out.push({ role: "assistant", content: m.content });
+      }
+    }
+    return { messages: out, ephemeralOpenAiFileIds };
+  } catch (e) {
+    await Promise.all(ephemeralOpenAiFileIds.map((id) => deleteOpenAiFile(id)));
+    throw e;
+  }
 }
 
 export const chatService = {
@@ -172,6 +377,7 @@ export const chatService = {
     assistantMessage: ChatMessage;
     title: string;
     openaiMessages: ChatCompletionMessageParam[];
+    ephemeralOpenAiFileIds: string[];
   } | null> {
     const { content, renameTitle } = sendTurnSchema.parse(input);
     const chat = await this.getChatForUser(chatId, userId);
@@ -190,8 +396,8 @@ export const chatService = {
     if (!assistantMessage) return null;
 
     const rows = await chatRepository.listMessages(chatId);
-    const openaiMessages = toOpenAiMessages(rows);
+    const { messages: openaiMessages, ephemeralOpenAiFileIds } = await buildOpenAiMessages(rows);
 
-    return { userMessage, assistantMessage, title, openaiMessages };
+    return { userMessage, assistantMessage, title, openaiMessages, ephemeralOpenAiFileIds };
   },
 };
