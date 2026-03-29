@@ -1,4 +1,7 @@
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type {
+  ChatCompletionContentPart,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 import { z } from "zod";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
@@ -28,6 +31,58 @@ const sendTurnSchema = z.object({
   renameTitle: z.string().min(1).max(120).optional(),
 });
 
+const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+function isPublicHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s.trim());
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Turns stored user text (with `![alt](url)` from uploads) into plain string or
+ * OpenAI vision parts (`text` + `image_url`).
+ */
+function userMessageContentForOpenAI(content: string): string | ChatCompletionContentPart[] {
+  const parts: ChatCompletionContentPart[] = [];
+  let lastIndex = 0;
+  const re = new RegExp(MARKDOWN_IMAGE_RE.source, "g");
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(content)) !== null) {
+    const before = content.slice(lastIndex, m.index).replace(/\s+$/u, "");
+    if (before.length > 0) {
+      parts.push({ type: "text", text: before });
+    }
+    const url = m[2].trim();
+    if (isPublicHttpUrl(url)) {
+      parts.push({
+        type: "image_url",
+        image_url: { url, detail: "auto" },
+      });
+    } else {
+      parts.push({ type: "text", text: m[0] });
+    }
+    lastIndex = m.index + m[0].length;
+  }
+
+  const tail = content.slice(lastIndex).replace(/^\s+/u, "");
+  if (tail.length > 0) {
+    parts.push({ type: "text", text: tail });
+  }
+
+  if (parts.length === 0) {
+    return content;
+  }
+  if (parts.length === 1 && parts[0].type === "text") {
+    return parts[0].text;
+  }
+  return parts;
+}
+
 function toOpenAiMessages(rows: ChatMessage[]): ChatCompletionMessageParam[] {
   const out: ChatCompletionMessageParam[] = [];
   const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
@@ -39,7 +94,8 @@ function toOpenAiMessages(rows: ChatMessage[]): ChatCompletionMessageParam[] {
     if (m.role === "system") {
       out.push({ role: "system", content: m.content });
     } else if (m.role === "user") {
-      out.push({ role: "user", content: m.content });
+      const userContent = userMessageContentForOpenAI(m.content);
+      out.push({ role: "user", content: userContent });
     } else {
       out.push({ role: "assistant", content: m.content });
     }
