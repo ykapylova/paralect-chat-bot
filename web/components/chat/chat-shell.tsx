@@ -18,47 +18,29 @@ import {
 import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "server/types/chat";
 import {
   ApiError,
-  apiDelete,
-  apiGet,
-  apiPatch,
-  apiPost,
-  apiUploadFile,
-  readApiError,
+  createChat,
+  deleteChat,
+  getChatWithMessages,
+  getChats,
+  getMeUsage,
+  patchChat,
+  postChatTurn,
+  uploadChatImage,
+  uploadChatUserPickedFile,
 } from "lib/api-client";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
-import type { ChatTurnStreamEvent, MeUsageData } from "lib/api-types/chat";
+import type { ChatTurnStreamEvent } from "lib/api-types/chat";
 import type { ChatUploadResult } from "lib/api-types/upload";
 import { consumeSseJsonStream } from "lib/chat-turn-stream";
+import { extensionForPastedImageMime } from "lib/file-upload-config";
 import { ChatComposer } from "./chat-composer";
 import { mapApiMessage } from "./chat-format";
 import { ChatHeader } from "./chat-header";
 import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
-
-function extensionForClipboardImage(mime: string): string {
-  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
-  if (mime === "image/gif") return "gif";
-  if (mime === "image/webp") return "webp";
-  if (mime === "image/png") return "png";
-  return "png";
-}
 import { ChatUsageBanner } from "./chat-usage-banner";
 
-/** Guest vs signed-in usage cache — avoids stale anon quota after login. */
 const USAGE_SCOPE_ANON = "__anon__";
-
-/** Prefer `/api/uploads/image` when the generic file picker was used with an allowed image. */
-function shouldUploadFileAsImage(file: File): boolean {
-  const base = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
-  const allowedMime =
-    base === "image/png" ||
-    base === "image/jpeg" ||
-    base === "image/jpg" ||
-    base === "image/gif" ||
-    base === "image/webp";
-  if (allowedMime) return true;
-  return /\.(png|jpe?g|gif|webp)$/i.test(file.name);
-}
 
 function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
   const ap = Boolean(a.pinned);
@@ -116,12 +98,12 @@ export function ChatShell() {
 
   const chatsQuery = useQuery({
     queryKey: ["chats"],
-    queryFn: () => apiGet<ApiChat[]>("/api/chats"),
+    queryFn: () => getChats(),
   });
 
   const usageQuery = useQuery({
     queryKey: ["usage", userId ?? USAGE_SCOPE_ANON],
-    queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
+    queryFn: () => getMeUsage(),
     enabled: isLoaded,
   });
 
@@ -143,7 +125,7 @@ export function ChatShell() {
 
   const chatDetailQuery = useQuery({
     queryKey: ["chat", activeChatId],
-    queryFn: () => apiGet<ChatWithMessages>(`/api/chats/${activeChatId}`),
+    queryFn: () => getChatWithMessages(activeChatId!),
     enabled: Boolean(activeChatId),
   });
 
@@ -155,7 +137,7 @@ export function ChatShell() {
   const activeTitle = chatDetailQuery.data?.title ?? "Chat";
 
   const createChatMutation = useMutation({
-    mutationFn: () => apiPost<ApiChat>("/api/chats", {}),
+    mutationFn: () => createChat(),
     onSuccess: (chat) => {
       const row: ApiChat = { ...chat, pinned: Boolean(chat.pinned) };
       queryClient.setQueryData<ChatWithMessages>(["chat", row.id], {
@@ -174,7 +156,7 @@ export function ChatShell() {
 
   const patchChatMutation = useMutation({
     mutationFn: ({ chatId, ...body }: { chatId: string; title?: string; pinned?: boolean }) =>
-      apiPatch<ApiChat>(`/api/chats/${chatId}`, body),
+      patchChat(chatId, body),
     onSuccess: (chat) => {
       queryClient.setQueryData<ChatWithMessages>(["chat", chat.id], (previous) =>
         previous ? { ...previous, title: chat.title, pinned: chat.pinned, updatedAt: chat.updatedAt } : previous,
@@ -189,7 +171,7 @@ export function ChatShell() {
   });
 
   const deleteChatMutation = useMutation({
-    mutationFn: (chatId: string) => apiDelete(`/api/chats/${chatId}`),
+    mutationFn: (chatId: string) => deleteChat(chatId),
     onSuccess: (_, chatId) => {
       queryClient.removeQueries({ queryKey: ["chat", chatId] });
       queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
@@ -213,19 +195,10 @@ export function ChatShell() {
       nextTitle: string;
       optimisticId: string;
     }) => {
-      const res = await fetch(`/api/chats/${variables.chatId}/turn`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: variables.content,
-          ...(variables.shouldRename ? { renameTitle: variables.nextTitle } : {}),
-        }),
+      const res = await postChatTurn(variables.chatId, {
+        content: variables.content,
+        ...(variables.shouldRename ? { renameTitle: variables.nextTitle } : {}),
       });
-
-      if (!res.ok) {
-        throw await readApiError(res);
-      }
 
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("text/event-stream")) {
@@ -434,13 +407,10 @@ export function ChatShell() {
       setAttachmentUploadPending(true);
       try {
         if (selectedImage) {
-          uploaded.push(await apiUploadFile<ChatUploadResult>("/api/uploads/image", selectedImage));
+          uploaded.push(await uploadChatImage(selectedImage));
         }
         if (selectedFile) {
-          const filePath = shouldUploadFileAsImage(selectedFile)
-            ? "/api/uploads/image"
-            : "/api/uploads/document";
-          uploaded.push(await apiUploadFile<ChatUploadResult>(filePath, selectedFile));
+          uploaded.push(await uploadChatUserPickedFile(selectedFile));
         }
       } catch (err) {
         const msg = err instanceof ApiError ? err.message : "Upload failed";
@@ -560,7 +530,7 @@ export function ChatShell() {
 
     event.preventDefault();
     setAttachmentError(null);
-    const ext = extensionForClipboardImage(imageFile.type);
+    const ext = extensionForPastedImageMime(imageFile.type);
     const fallbackName = `pasted-${Date.now()}.${ext}`;
     const name =
       imageFile.name && !/^image\.(png|jpe?g|gif|webp)$/i.test(imageFile.name)

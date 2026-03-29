@@ -4,8 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useMemo } from "react";
-import type { MeUsageData } from "lib/api-types/chat";
-import { apiGet } from "lib/api-client";
+import { getMeUsage } from "lib/api-client";
 import {
   CHATS_SYNC_EVENT,
   type ChatsSyncPayload,
@@ -19,7 +18,7 @@ export function ChatsRealtimeSync() {
 
   const usageQuery = useQuery({
     queryKey: ["usage", "__anon__"],
-    queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
+    queryFn: () => getMeUsage(),
     enabled: isLoaded && !userId,
   });
 

@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
 
 import {
+  CHAT_UPLOAD_DOCUMENT_MIME_SET,
+  CHAT_UPLOAD_IMAGE_MIME_SET,
+} from "lib/file-upload-config";
+import {
   getStorageBucketName,
   getSignedUrlForPath,
   isChatStorageConfigured,
@@ -18,22 +22,6 @@ export class UploadValidationError extends Error {
   }
 }
 
-const IMAGE_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/gif",
-  "image/webp",
-]);
-
-const DOCUMENT_MIMES = new Set([
-  "application/pdf",
-  "text/plain",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
-/** Strip parameters (e.g. `image/png; charset=binary` → `image/png`). */
 function normalizeMimeType(raw: string): string {
   const base = raw.split(";")[0]?.trim().toLowerCase() ?? "";
   return base || "application/octet-stream";
@@ -80,7 +68,7 @@ async function storeFile(
   }
 
   const mimeType = normalizeMimeType(file.type || "application/octet-stream");
-  const allowed = kind === "image" ? IMAGE_MIMES : DOCUMENT_MIMES;
+  const allowed = kind === "image" ? CHAT_UPLOAD_IMAGE_MIME_SET : CHAT_UPLOAD_DOCUMENT_MIME_SET;
   if (!allowed.has(mimeType)) {
     throw new UploadValidationError(`Unsupported file type: ${mimeType || "unknown"}`, "INVALID_MIME");
   }

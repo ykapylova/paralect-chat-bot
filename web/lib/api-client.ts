@@ -1,3 +1,12 @@
+import type { Chat as ApiChat, ChatWithMessages } from "server/types/chat";
+import type { MeUsageData } from "lib/api-types/chat";
+import type { ChatUploadResult } from "lib/api-types/upload";
+import {
+  CHAT_UPLOAD_IMAGE_FILENAME_EXT_REGEX,
+  isChatImageUploadMime,
+} from "./file-upload-config";
+import { apiPaths } from "./api-paths";
+
 const jsonHeaders = { "Content-Type": "application/json" };
 
 export class ApiError extends Error {
@@ -32,7 +41,7 @@ function readErrorCode(json: unknown): string | undefined {
   return undefined;
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
   const json: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -44,7 +53,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (json as { data: T }).data;
 }
 
-export async function apiUploadFile<T>(path: string, file: File): Promise<T> {
+async function apiUploadFile<T>(path: string, file: File): Promise<T> {
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(path, {
@@ -62,7 +71,7 @@ export async function apiUploadFile<T>(path: string, file: File): Promise<T> {
   return (json as { data: T }).data;
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
     credentials: "include",
@@ -79,7 +88,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (json as { data: T }).data;
 }
 
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "PATCH",
     credentials: "include",
@@ -96,7 +105,7 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return (json as { data: T }).data;
 }
 
-export async function apiDelete(path: string): Promise<void> {
+async function apiDelete(path: string): Promise<void> {
   const res = await fetch(path, { method: "DELETE", credentials: "include" });
   const json: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -110,4 +119,67 @@ export async function apiDelete(path: string): Promise<void> {
   ) {
     throw new Error("Invalid API response");
   }
+}
+
+function shouldUploadFileAsImage(file: File): boolean {
+  const base = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (isChatImageUploadMime(base)) return true;
+  return CHAT_UPLOAD_IMAGE_FILENAME_EXT_REGEX.test(file.name);
+}
+
+export async function getChats(): Promise<ApiChat[]> {
+  return apiGet<ApiChat[]>(apiPaths.chats());
+}
+
+export async function getMeUsage(): Promise<MeUsageData> {
+  return apiGet<MeUsageData>(apiPaths.meUsage());
+}
+
+export async function getChatWithMessages(chatId: string): Promise<ChatWithMessages> {
+  return apiGet<ChatWithMessages>(apiPaths.chat(chatId));
+}
+
+export async function createChat(): Promise<ApiChat> {
+  return apiPost<ApiChat>(apiPaths.chats(), {});
+}
+
+export async function patchChat(
+  chatId: string,
+  body: { title?: string; pinned?: boolean },
+): Promise<ApiChat> {
+  return apiPatch<ApiChat>(apiPaths.chat(chatId), body);
+}
+
+export async function deleteChat(chatId: string): Promise<void> {
+  return apiDelete(apiPaths.chat(chatId));
+}
+
+export type PostChatTurnBody = {
+  content: string;
+  renameTitle?: string;
+};
+
+export async function postChatTurn(chatId: string, body: PostChatTurnBody): Promise<Response> {
+  const res = await fetch(apiPaths.chatTurn(chatId), {
+    method: "POST",
+    credentials: "include",
+    headers: jsonHeaders,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw await readApiError(res);
+  }
+  return res;
+}
+
+export async function uploadChatImage(file: File): Promise<ChatUploadResult> {
+  return apiUploadFile<ChatUploadResult>(apiPaths.uploadImage(), file);
+}
+
+export async function uploadChatDocument(file: File): Promise<ChatUploadResult> {
+  return apiUploadFile<ChatUploadResult>(apiPaths.uploadDocument(), file);
+}
+
+export async function uploadChatUserPickedFile(file: File): Promise<ChatUploadResult> {
+  return shouldUploadFileAsImage(file) ? uploadChatImage(file) : uploadChatDocument(file);
 }

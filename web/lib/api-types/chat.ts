@@ -1,6 +1,5 @@
 import type { ChatMessage } from "server/types/chat";
 
-/** `GET /api/me/usage` → `data` */
 export type MeUsageData = {
   sessionId: string | null;
   freeLimit: number | null;
