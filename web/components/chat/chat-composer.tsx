@@ -1,4 +1,4 @@
-import type { ChangeEvent, FormEvent, KeyboardEvent, RefObject } from "react";
+import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, RefObject } from "react";
 import { ImageIcon, MessageCircle, Paperclip, SendHorizontal, X } from "lucide-react";
 
 type ChatComposerProps = {
@@ -15,6 +15,7 @@ type ChatComposerProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onComposerFocus: () => void;
   onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onComposerPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onPickFile: (event: ChangeEvent<HTMLInputElement>) => void;
   onPickImage: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenAttachmentPicker: (kind: "file" | "image") => void;
@@ -38,6 +39,7 @@ export function ChatComposer({
   onSubmit,
   onComposerFocus,
   onComposerKeyDown,
+  onComposerPaste,
   onPickFile,
   onPickImage,
   onOpenAttachmentPicker,
@@ -87,6 +89,7 @@ export function ChatComposer({
               onChange={(event) => onDraftChange(event.target.value)}
               onFocus={onComposerFocus}
               onKeyDown={onComposerKeyDown}
+              onPaste={onComposerPaste}
               placeholder={anonFreeLimitReached ? "Sign in to send more messages" : "Ask anything"}
               ref={textareaRef}
               rows={1}

@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChangeEvent,
+  ClipboardEvent,
   FormEvent,
   KeyboardEvent,
   type SetStateAction,
@@ -33,6 +34,14 @@ import { mapApiMessage } from "./chat-format";
 import { ChatHeader } from "./chat-header";
 import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
+
+function extensionForClipboardImage(mime: string): string {
+  if (mime === "image/jpeg" || mime === "image/jpg") return "jpg";
+  if (mime === "image/gif") return "gif";
+  if (mime === "image/webp") return "webp";
+  if (mime === "image/png") return "png";
+  return "png";
+}
 import { ChatUsageBanner } from "./chat-usage-banner";
 
 /** Guest vs signed-in usage cache — avoids stale anon quota after login. */
@@ -476,33 +485,44 @@ export function ChatShell() {
     });
   };
 
-  const openAttachmentPicker = async (kind: "file" | "image") => {
-    setAttachmentError(null);
-    if (sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached) return;
-    if (!selectedChatId) {
-      if (isGuestMode) {
-        const list = chatsQuery.data ?? [];
-        if (list.length > 0) {
-          updateSelectedChatId(list[0].id);
-        } else if (createChatMutation.isPending) {
-          return;
-        } else {
-          try {
-            await createChatMutation.mutateAsync();
-          } catch {
-            return;
-          }
-        }
-      } else if (createChatMutation.isPending) {
-        return;
-      } else {
-        try {
-          await createChatMutation.mutateAsync();
-        } catch {
-          return;
-        }
+  const ensureChatReadyForAttachment = async (): Promise<boolean> => {
+    if (sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached) {
+      return false;
+    }
+    if (selectedChatId !== null) {
+      return true;
+    }
+    if (isGuestMode) {
+      const list = chatsQuery.data ?? [];
+      if (list.length > 0) {
+        updateSelectedChatId(list[0].id);
+        return true;
+      }
+      if (createChatMutation.isPending) {
+        return false;
+      }
+      try {
+        await createChatMutation.mutateAsync();
+        return true;
+      } catch {
+        return false;
       }
     }
+    if (createChatMutation.isPending) {
+      return false;
+    }
+    try {
+      await createChatMutation.mutateAsync();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const openAttachmentPicker = async (kind: "file" | "image") => {
+    setAttachmentError(null);
+    const ok = await ensureChatReadyForAttachment();
+    if (!ok) return;
     if (kind === "file") {
       fileInputRef.current?.click();
     } else {
@@ -516,6 +536,43 @@ export function ChatShell() {
 
   const handleImagePick = (event: ChangeEvent<HTMLInputElement>) => {
     setSelectedImage(event.target.files?.[0] ?? null);
+  };
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (attachmentDisabled || textareaDisabled) return;
+    const cd = event.clipboardData;
+    if (!cd) return;
+
+    let imageFile: File | null = null;
+    for (const item of cd.items) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        imageFile = item.getAsFile();
+        break;
+      }
+    }
+    if (!imageFile && cd.files?.length) {
+      const f = cd.files[0];
+      if (f?.type.startsWith("image/")) {
+        imageFile = f;
+      }
+    }
+    if (!imageFile) return;
+
+    event.preventDefault();
+    setAttachmentError(null);
+    const ext = extensionForClipboardImage(imageFile.type);
+    const fallbackName = `pasted-${Date.now()}.${ext}`;
+    const name =
+      imageFile.name && !/^image\.(png|jpe?g|gif|webp)$/i.test(imageFile.name)
+        ? imageFile.name
+        : fallbackName;
+    const file = name === imageFile.name ? imageFile : new File([imageFile], name, { type: imageFile.type });
+
+    void (async () => {
+      const ok = await ensureChatReadyForAttachment();
+      if (!ok) return;
+      setSelectedImage(file);
+    })();
   };
 
   useEffect(() => {
@@ -645,6 +702,7 @@ export function ChatShell() {
           imageInputRef={imageInputRef}
           onComposerFocus={handleComposerFocus}
           onComposerKeyDown={handleComposerKeyDown}
+          onComposerPaste={handleComposerPaste}
           onDraftChange={setDraft}
           onOpenAttachmentPicker={openAttachmentPicker}
           onPickFile={handleFilePick}
