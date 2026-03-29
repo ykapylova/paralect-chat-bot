@@ -15,9 +15,10 @@ import {
   useState,
 } from "react";
 import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "server/types/chat";
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "lib/api-client";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiUploadFile } from "lib/api-client";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import type { ChatTurnData, MeUsageData } from "lib/api-types/chat";
+import type { ChatUploadResult } from "lib/api-types/upload";
 import { ChatComposer } from "./chat-composer";
 import { mapApiMessage } from "./chat-format";
 import { ChatHeader } from "./chat-header";
@@ -27,6 +28,19 @@ import { ChatUsageBanner } from "./chat-usage-banner";
 
 /** Guest vs signed-in usage cache — avoids stale anon quota after login. */
 const USAGE_SCOPE_ANON = "__anon__";
+
+/** Prefer `/api/uploads/image` when the generic file picker was used with an allowed image. */
+function shouldUploadFileAsImage(file: File): boolean {
+  const base = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  const allowedMime =
+    base === "image/png" ||
+    base === "image/jpeg" ||
+    base === "image/jpg" ||
+    base === "image/gif" ||
+    base === "image/webp";
+  if (allowedMime) return true;
+  return /\.(png|jpe?g|gif|webp)$/i.test(file.name);
+}
 
 function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
   const ap = Boolean(a.pinned);
@@ -46,6 +60,8 @@ export function ChatShell() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [attachmentUploadPending, setAttachmentUploadPending] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useLayoutEffect(() => {
@@ -228,6 +244,7 @@ export function ChatShell() {
       setDraft(variables.content);
     },
     onSuccess: (data, variables, context) => {
+      setAttachmentError(null);
       queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
         if (!previous) return previous;
         const withoutOptimistic = previous.messages.filter((m) => m.id !== context?.optimisticId);
@@ -277,12 +294,14 @@ export function ChatShell() {
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (sendMutation.isPending || createChatMutation.isPending) return;
+    if (sendMutation.isPending || createChatMutation.isPending || attachmentUploadPending) return;
     if (anonFreeLimitReached) return;
 
     const text = draft.trim();
     const hasAttachments = Boolean(selectedFile || selectedImage);
     if (!text && !hasAttachments) return;
+
+    setAttachmentError(null);
 
     let chatId = selectedChatId;
     if (!chatId) {
@@ -309,13 +328,39 @@ export function ChatShell() {
       }
     }
 
-    const attachmentSuffix = [selectedFile?.name, selectedImage?.name].filter(Boolean).join(", ");
+    const uploaded: ChatUploadResult[] = [];
+    if (hasAttachments) {
+      setAttachmentUploadPending(true);
+      try {
+        if (selectedImage) {
+          uploaded.push(await apiUploadFile<ChatUploadResult>("/api/uploads/image", selectedImage));
+        }
+        if (selectedFile) {
+          const filePath = shouldUploadFileAsImage(selectedFile)
+            ? "/api/uploads/image"
+            : "/api/uploads/document";
+          uploaded.push(await apiUploadFile<ChatUploadResult>(filePath, selectedFile));
+        }
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Upload failed";
+        setAttachmentError(msg);
+        setAttachmentUploadPending(false);
+        return;
+      }
+      setAttachmentUploadPending(false);
+    }
+
+    const attachmentLines = uploaded.map((u) =>
+      u.type === "image"
+        ? `![${u.filename}](${u.signedUrl})`
+        : `[${u.filename}](${u.signedUrl})`,
+    );
     const content =
       text.length > 0
-        ? attachmentSuffix
-          ? `${text}\n\nAttached: ${attachmentSuffix}`
+        ? attachmentLines.length > 0
+          ? `${text}\n\n${attachmentLines.join("\n")}`
           : text
-        : `Attached: ${attachmentSuffix}`;
+        : attachmentLines.join("\n");
 
     const detail =
       queryClient.getQueryData<ChatWithMessages>(["chat", chatId]) ?? chatDetailQuery.data;
@@ -334,7 +379,8 @@ export function ChatShell() {
   };
 
   const openAttachmentPicker = async (kind: "file" | "image") => {
-    if (sendMutation.isPending || anonFreeLimitReached) return;
+    setAttachmentError(null);
+    if (sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached) return;
     if (!selectedChatId) {
       if (isGuestMode) {
         const list = chatsQuery.data ?? [];
@@ -384,20 +430,24 @@ export function ChatShell() {
     textarea.style.overflowY = textarea.scrollHeight > 220 ? "auto" : "hidden";
   }, [draft]);
 
-  const loadError = chatsQuery.error?.message ?? chatDetailQuery.error?.message ?? sendMutation.error?.message;
+  const loadError =
+    chatsQuery.error?.message ?? chatDetailQuery.error?.message ?? sendMutation.error?.message;
+  const bannerError = loadError ?? attachmentError;
   const isBootLoading = chatsQuery.isLoading;
   const isChatLoading = Boolean(activeChatId) && chatDetailQuery.isLoading;
   const sendDisabled =
     sendMutation.isPending ||
     createChatMutation.isPending ||
+    attachmentUploadPending ||
     anonFreeLimitReached ||
     (!draft.trim() && !selectedFile && !selectedImage);
 
   const attachmentDisabled =
     sendMutation.isPending ||
+    attachmentUploadPending ||
     (selectedChatId === null && createChatMutation.isPending) ||
     anonFreeLimitReached;
-  const textareaDisabled = sendMutation.isPending || anonFreeLimitReached;
+  const textareaDisabled = sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached;
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -409,11 +459,13 @@ export function ChatShell() {
 
   const removeFile = () => {
     setSelectedFile(null);
+    setAttachmentError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeImage = () => {
     setSelectedImage(null);
+    setAttachmentError(null);
     if (imageInputRef.current) imageInputRef.current.value = "";
   };
 
@@ -472,8 +524,8 @@ export function ChatShell() {
 
         <ChatUsageBanner usage={usage} />
 
-        {loadError ? (
-          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600">{loadError}</div>
+        {bannerError ? (
+          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600">{bannerError}</div>
         ) : null}
 
         <ChatMessageThread
