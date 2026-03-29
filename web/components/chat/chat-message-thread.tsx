@@ -1,5 +1,6 @@
 import { Bot, User } from "lucide-react";
 import type { UiMessage } from "./chat-types";
+import { MessageContent } from "./message-content";
 
 type ChatMessageThreadProps = {
   activeChatId: string | null;
@@ -71,7 +72,11 @@ export function ChatMessageThread({
                     : "border-transparent bg-[#eceff3]"
                 } ${message.isPending ? "opacity-80" : ""}`}
               >
-                <p className="whitespace-pre-wrap">{message.text}</p>
+                {message.role === "assistant" && message.text.length === 0 ? (
+                  <p className="text-[var(--muted)]">Thinking…</p>
+                ) : (
+                  <MessageContent text={message.text} />
+                )}
               </div>
             </article>
           ))}
