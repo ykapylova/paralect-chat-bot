@@ -25,6 +25,9 @@ import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
 import { ChatUsageBanner } from "./chat-usage-banner";
 
+/** Guest vs signed-in usage cache — avoids stale anon quota after login. */
+const USAGE_SCOPE_ANON = "__anon__";
+
 function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
   const ap = Boolean(a.pinned);
   const bp = Boolean(b.pinned);
@@ -83,9 +86,15 @@ export function ChatShell() {
   });
 
   const usageQuery = useQuery({
-    queryKey: ["usage"],
+    queryKey: ["usage", userId ?? USAGE_SCOPE_ANON],
     queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
+    enabled: isLoaded,
   });
+
+  useEffect(() => {
+    if (!isLoaded || !userId) return;
+    queryClient.removeQueries({ queryKey: ["usage", USAGE_SCOPE_ANON] });
+  }, [isLoaded, userId, queryClient]);
 
   const chatsForSidebar = chatsQuery.data ?? [];
 
@@ -253,7 +262,8 @@ export function ChatShell() {
 
   const usage = usageQuery.data;
   const anonFreeLimitReached = Boolean(
-    usage?.isAnonymous &&
+    isGuestMode &&
+      usage?.isAnonymous &&
       usage.remainingQuestions !== null &&
       usage.remainingQuestions <= 0,
   );
