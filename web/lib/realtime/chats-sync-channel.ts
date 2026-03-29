@@ -1,5 +1,10 @@
 export const CHATS_SYNC_EVENT = "chats-changed";
 
+export type ChatsSyncPayload = {
+  at: number;
+  chatId?: string;
+};
+
 export function chatsSyncChannelName(principalUserId: string): string {
   const safe = principalUserId.replace(/[^a-zA-Z0-9_-]/g, "_");
   return `chats-sync-${safe}`;

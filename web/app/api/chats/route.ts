@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const chat = await chatService.createChat(principal.userId, body);
-    void notifyChatsSync(principal.userId);
+    void notifyChatsSync(principal.userId, { chatId: chat.id });
     return jsonOkWithPrincipal(principal, chat, { status: 201 });
   } catch {
     return jsonErrWithPrincipal(principal, "Invalid request payload", 400);

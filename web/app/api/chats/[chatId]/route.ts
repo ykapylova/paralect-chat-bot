@@ -35,7 +35,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return jsonErrWithPrincipal(principal, "Chat not found", 404);
     }
 
-    void notifyChatsSync(principal.userId);
+    void notifyChatsSync(principal.userId, { chatId });
     return jsonOkWithPrincipal(principal, chat);
   } catch {
     return jsonErrWithPrincipal(principal, "Invalid request payload", 400);
@@ -51,6 +51,6 @@ export async function DELETE(request: Request, context: RouteContext) {
     return jsonErrWithPrincipal(principal, "Chat not found", 404);
   }
 
-  void notifyChatsSync(principal.userId);
+  void notifyChatsSync(principal.userId, { chatId });
   return jsonAckWithPrincipal(principal);
 }

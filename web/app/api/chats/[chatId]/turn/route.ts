@@ -13,12 +13,13 @@ type RouteContext = {
 
 export async function POST(request: Request, context: RouteContext) {
   const principal = await resolveChatPrincipal(request);
+  const { chatId } = await context.params;
 
   if (principal.anonSessionId) {
     const allowed = await usageService.hasAnonymousQuota(principal.anonSessionId);
     if (!allowed) {
       await chatService.deleteAllChatsForAnonymousUser(principal.userId);
-      void notifyChatsSync(principal.userId);
+      void notifyChatsSync(principal.userId, { chatId });
       return jsonErrWithPrincipal(
         principal,
         "You have used all free questions. Sign in to continue chatting.",
@@ -27,8 +28,6 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
   }
-
-  const { chatId } = await context.params;
 
   try {
     const body = await request.json();
@@ -44,11 +43,11 @@ export async function POST(request: Request, context: RouteContext) {
       if (anonymousQuotaExhausted) {
         await chatService.deleteAllChatsForAnonymousUser(principal.userId);
       }
-      void notifyChatsSync(principal.userId);
+      void notifyChatsSync(principal.userId, { chatId });
       return jsonOkWithPrincipal(principal, { ...result, anonymousQuotaExhausted });
     }
 
-    void notifyChatsSync(principal.userId);
+    void notifyChatsSync(principal.userId, { chatId });
     return jsonOkWithPrincipal(principal, result);
   } catch {
     return jsonErrWithPrincipal(principal, "Invalid request payload", 400);

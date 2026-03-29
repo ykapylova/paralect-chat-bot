@@ -8,6 +8,7 @@ import type { MeUsageData } from "lib/api-types/chat";
 import { apiGet } from "lib/api-client";
 import {
   CHATS_SYNC_EVENT,
+  type ChatsSyncPayload,
   chatsSyncChannelName,
   principalUserIdFromAnonSession,
 } from "lib/realtime/chats-sync-channel";
@@ -41,8 +42,12 @@ export function ChatsRealtimeSync() {
 
     const channel = supabase
       .channel(chatsSyncChannelName(principalUserId))
-      .on("broadcast", { event: CHATS_SYNC_EVENT }, () => {
+      .on("broadcast", { event: CHATS_SYNC_EVENT }, ({ payload }) => {
         void queryClient.invalidateQueries({ queryKey: ["chats"] });
+        const p = payload as ChatsSyncPayload | null | undefined;
+        if (p?.chatId) {
+          void queryClient.invalidateQueries({ queryKey: ["chat", p.chatId] });
+        }
       });
 
     channel.subscribe();
