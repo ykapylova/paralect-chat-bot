@@ -17,7 +17,7 @@ export function ChatsRealtimeSync() {
   const { isLoaded, userId } = useAuth();
 
   const usageQuery = useQuery({
-    queryKey: ["usage"],
+    queryKey: ["usage", "__anon__"],
     queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
     enabled: isLoaded && !userId,
   });
