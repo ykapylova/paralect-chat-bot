@@ -3,6 +3,7 @@ import {
   jsonOkWithPrincipal,
   resolveChatPrincipal,
 } from "server/auth/chat-principal";
+import { notifyChatsSync } from "server/realtime/notify-chats-sync";
 import { chatService } from "server/services/chat.service";
 
 type RouteContext = {
@@ -33,6 +34,7 @@ export async function POST(request: Request, context: RouteContext) {
       return jsonErrWithPrincipal(principal, "Chat not found", 404);
     }
 
+    void notifyChatsSync(principal.userId, { chatId });
     return jsonOkWithPrincipal(principal, message, { status: 201 });
   } catch {
     return jsonErrWithPrincipal(principal, "Invalid request payload", 400);

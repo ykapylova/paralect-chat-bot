@@ -1,7 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
-import { CHATS_SYNC_EVENT, chatsSyncChannelName } from "lib/realtime/chats-sync-channel";
+import {
+  CHATS_SYNC_EVENT,
+  type ChatsSyncPayload,
+  chatsSyncChannelName,
+} from "lib/realtime/chats-sync-channel";
 
-export async function notifyChatsSync(principalUserId: string): Promise<void> {
+export async function notifyChatsSync(
+  principalUserId: string,
+  extra?: Pick<ChatsSyncPayload, "chatId">,
+): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return;
@@ -12,8 +19,10 @@ export async function notifyChatsSync(principalUserId: string): Promise<void> {
 
   const channel = supabase.channel(chatsSyncChannelName(principalUserId));
 
+  const payload: ChatsSyncPayload = { at: Date.now(), ...extra };
+
   try {
-    const result = await channel.httpSend(CHATS_SYNC_EVENT, { at: Date.now() });
+    const result = await channel.httpSend(CHATS_SYNC_EVENT, payload);
     if (!result.success) {
       console.warn("[notifyChatsSync]", result.error);
     }
