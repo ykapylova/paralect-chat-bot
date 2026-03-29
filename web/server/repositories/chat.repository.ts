@@ -169,4 +169,32 @@ export const chatRepository = {
       };
     });
   },
+
+  async updateMessageContent(
+    messageId: string,
+    chatId: string,
+    content: string,
+  ): Promise<ChatMessage | null> {
+    const db = getDb();
+    const [updated] = await db
+      .update(messagesTable)
+      .set({ content })
+      .where(and(eq(messagesTable.id, messageId), eq(messagesTable.chatId, chatId)))
+      .returning();
+
+    if (!updated) return null;
+
+    await db
+      .update(chatsTable)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(chatsTable.id, chatId));
+
+    return {
+      id: updated.id,
+      chatId: updated.chatId,
+      role: updated.role,
+      content: updated.content,
+      createdAt: updated.createdAt,
+    };
+  },
 };

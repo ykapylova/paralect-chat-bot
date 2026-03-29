@@ -15,10 +15,19 @@ import {
   useState,
 } from "react";
 import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "server/types/chat";
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiUploadFile } from "lib/api-client";
+import {
+  ApiError,
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
+  apiUploadFile,
+  readApiError,
+} from "lib/api-client";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
-import type { ChatTurnData, MeUsageData } from "lib/api-types/chat";
+import type { ChatTurnStreamEvent, MeUsageData } from "lib/api-types/chat";
 import type { ChatUploadResult } from "lib/api-types/upload";
+import { consumeSseJsonStream } from "lib/chat-turn-stream";
 import { ChatComposer } from "./chat-composer";
 import { mapApiMessage } from "./chat-format";
 import { ChatHeader } from "./chat-header";
@@ -188,29 +197,144 @@ export function ChatShell() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: async ({
-      chatId,
-      content,
-      shouldRename,
-      nextTitle,
-    }: {
+    mutationFn: async (variables: {
       chatId: string;
       content: string;
       shouldRename: boolean;
       nextTitle: string;
+      optimisticId: string;
     }) => {
-      return apiPost<ChatTurnData>(`/api/chats/${chatId}/turn`, {
-        content,
-        ...(shouldRename ? { renameTitle: nextTitle } : {}),
+      const res = await fetch(`/api/chats/${variables.chatId}/turn`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: variables.content,
+          ...(variables.shouldRename ? { renameTitle: variables.nextTitle } : {}),
+        }),
       });
+
+      if (!res.ok) {
+        throw await readApiError(res);
+      }
+
+      const ct = res.headers.get("content-type") ?? "";
+      if (!ct.includes("text/event-stream")) {
+        throw new Error("Expected streamed chat response");
+      }
+
+      let assistantMessageId = "";
+      let accumulated = "";
+      let rafId: number | null = null;
+
+      const flushContent = () => {
+        rafId = null;
+        const text = accumulated;
+        if (!assistantMessageId) return;
+        queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            messages: prev.messages.map((m) =>
+              m.id === assistantMessageId ? { ...m, content: text } : m,
+            ),
+          };
+        });
+      };
+
+      const scheduleFlush = () => {
+        if (rafId != null) return;
+        rafId = requestAnimationFrame(flushContent);
+      };
+
+      let sawTerminalEvent = false;
+      await consumeSseJsonStream<ChatTurnStreamEvent>(res, (evt) => {
+        switch (evt.type) {
+          case "start": {
+            assistantMessageId = evt.assistantMessage.id;
+            accumulated = "";
+            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
+              if (!previous) return previous;
+              const withoutOptimistic = previous.messages.filter(
+                (m) => m.id !== variables.optimisticId,
+              );
+              return {
+                ...previous,
+                title: evt.title,
+                messages: [...withoutOptimistic, evt.userMessage, evt.assistantMessage],
+              };
+            });
+            break;
+          }
+          case "delta": {
+            accumulated += evt.text;
+            scheduleFlush();
+            break;
+          }
+          case "done": {
+            sawTerminalEvent = true;
+            setAttachmentError(null);
+            if (rafId != null) {
+              cancelAnimationFrame(rafId);
+              rafId = null;
+            }
+            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
+              if (!previous) return previous;
+              return {
+                ...previous,
+                title: evt.title,
+                updatedAt: evt.assistantMessage.createdAt,
+                messages: previous.messages.map((m) =>
+                  m.id === evt.assistantMessage.id ? evt.assistantMessage : m,
+                ),
+              };
+            });
+
+            if (evt.anonymousQuotaExhausted) {
+              queryClient.setQueryData<ApiChat[]>(["chats"], []);
+            } else {
+              queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+                if (!previous) return previous;
+                const next = previous.map((chat) =>
+                  chat.id === variables.chatId
+                    ? {
+                        ...chat,
+                        title: evt.title,
+                        updatedAt: evt.assistantMessage.createdAt,
+                      }
+                    : chat,
+                );
+                return [...next].sort(sortChatsForSidebar);
+              });
+            }
+            void queryClient.invalidateQueries({ queryKey: ["usage"] });
+            break;
+          }
+          case "error": {
+            sawTerminalEvent = true;
+            if (rafId != null) {
+              cancelAnimationFrame(rafId);
+              rafId = null;
+            }
+            void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
+            void queryClient.invalidateQueries({ queryKey: ["chats"] });
+            break;
+          }
+          default:
+            break;
+        }
+      });
+
+      if (!sawTerminalEvent) {
+        void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
+      }
     },
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: ["chat", variables.chatId] });
 
       const previousChat = queryClient.getQueryData<ChatWithMessages>(["chat", variables.chatId]);
-      const optimisticId = `optimistic-${crypto.randomUUID()}`;
       const optimisticMessage: ApiMessage = {
-        id: optimisticId,
+        id: variables.optimisticId,
         chatId: variables.chatId,
         role: "user",
         content: variables.content,
@@ -225,7 +349,7 @@ export function ChatShell() {
         });
       }
 
-      return { previousChat, optimisticId };
+      return { previousChat };
     },
     onError: (error, variables, context) => {
       if (error instanceof ApiError && error.code === "FREE_LIMIT_EXCEEDED") {
@@ -242,38 +366,6 @@ export function ChatShell() {
         void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
       }
       setDraft(variables.content);
-    },
-    onSuccess: (data, variables, context) => {
-      setAttachmentError(null);
-      queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
-        if (!previous) return previous;
-        const withoutOptimistic = previous.messages.filter((m) => m.id !== context?.optimisticId);
-        return {
-          ...previous,
-          title: data.title,
-          updatedAt: data.assistantMessage.createdAt,
-          messages: [...withoutOptimistic, data.userMessage, data.assistantMessage],
-        };
-      });
-
-      if (data.anonymousQuotaExhausted) {
-        queryClient.setQueryData<ApiChat[]>(["chats"], []);
-      } else {
-        queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-          if (!previous) return previous;
-          const next = previous.map((chat) =>
-            chat.id === variables.chatId
-              ? {
-                  ...chat,
-                  title: data.title,
-                  updatedAt: data.assistantMessage.createdAt,
-                }
-              : chat,
-          );
-          return [...next].sort(sortChatsForSidebar);
-        });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["usage"] });
     },
   });
 
@@ -375,7 +467,13 @@ export function ChatShell() {
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (imageInputRef.current) imageInputRef.current.value = "";
 
-    sendMutation.mutate({ chatId, content, shouldRename, nextTitle });
+    sendMutation.mutate({
+      chatId,
+      content,
+      shouldRename,
+      nextTitle,
+      optimisticId: `optimistic-${crypto.randomUUID()}`,
+    });
   };
 
   const openAttachmentPicker = async (kind: "file" | "image") => {

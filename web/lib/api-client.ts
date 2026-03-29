@@ -12,6 +12,11 @@ export class ApiError extends Error {
   }
 }
 
+export async function readApiError(res: Response): Promise<ApiError> {
+  const json: unknown = await res.json().catch(() => ({}));
+  return new ApiError(await parseError(res, json), res.status, readErrorCode(json));
+}
+
 async function parseError(res: Response, json: unknown): Promise<string> {
   if (json && typeof json === "object" && "error" in json && typeof (json as { error: string }).error === "string") {
     return (json as { error: string }).error;
