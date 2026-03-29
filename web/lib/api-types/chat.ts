@@ -9,10 +9,18 @@ export type MeUsageData = {
   isAnonymous: boolean;
 };
 
-/** `POST /api/chats/:id/turn` → `data` */
-export type ChatTurnData = {
-  userMessage: ChatMessage;
-  assistantMessage: ChatMessage;
-  title: string;
-  anonymousQuotaExhausted?: boolean;
-};
+export type ChatTurnStreamEvent =
+  | {
+      type: "start";
+      userMessage: ChatMessage;
+      assistantMessage: ChatMessage;
+      title: string;
+    }
+  | { type: "delta"; text: string }
+  | {
+      type: "done";
+      assistantMessage: ChatMessage;
+      title: string;
+      anonymousQuotaExhausted?: boolean;
+    }
+  | { type: "error"; message: string };

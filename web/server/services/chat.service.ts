@@ -1,7 +1,7 @@
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { z } from "zod";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
-import { FUTURE_ASSISTANT_ANSWER } from "../constants/assistant-placeholder";
 import { chatRepository } from "../repositories/chat.repository";
 import { ChatMessage, ChatRole } from "../types/chat";
 
@@ -27,6 +27,25 @@ const sendTurnSchema = z.object({
   content: z.string().min(1),
   renameTitle: z.string().min(1).max(120).optional(),
 });
+
+function toOpenAiMessages(rows: ChatMessage[]): ChatCompletionMessageParam[] {
+  const out: ChatCompletionMessageParam[] = [];
+  const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
+  if (systemFromEnv) {
+    out.push({ role: "system", content: systemFromEnv });
+  }
+  for (const m of rows) {
+    if (m.role === "assistant" && m.content.trim() === "") continue;
+    if (m.role === "system") {
+      out.push({ role: "system", content: m.content });
+    } else if (m.role === "user") {
+      out.push({ role: "user", content: m.content });
+    } else {
+      out.push({ role: "assistant", content: m.content });
+    }
+  }
+  return out;
+}
 
 export const chatService = {
   async listChats(userId: string) {
@@ -88,7 +107,7 @@ export const chatService = {
     return chatRepository.addMessage(chatId, role, content);
   },
 
-  async sendTurnWithPlaceholder(
+  async beginStreamTurn(
     chatId: string,
     userId: string,
     input: unknown,
@@ -96,6 +115,7 @@ export const chatService = {
     userMessage: ChatMessage;
     assistantMessage: ChatMessage;
     title: string;
+    openaiMessages: ChatCompletionMessageParam[];
   } | null> {
     const { content, renameTitle } = sendTurnSchema.parse(input);
     const chat = await this.getChatForUser(chatId, userId);
@@ -110,13 +130,12 @@ export const chatService = {
       if (updated) title = updated.title;
     }
 
-    const assistantMessage = await chatRepository.addMessage(
-      chatId,
-      "assistant",
-      FUTURE_ASSISTANT_ANSWER,
-    );
+    const assistantMessage = await chatRepository.addMessage(chatId, "assistant", "");
     if (!assistantMessage) return null;
 
-    return { userMessage, assistantMessage, title };
+    const rows = await chatRepository.listMessages(chatId);
+    const openaiMessages = toOpenAiMessages(rows);
+
+    return { userMessage, assistantMessage, title, openaiMessages };
   },
 };
