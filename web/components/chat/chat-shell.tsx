@@ -33,14 +33,13 @@ import type { ChatTurnStreamEvent } from "lib/api-types/chat";
 import type { ChatUploadResult } from "lib/api-types/upload";
 import { consumeSseJsonStream } from "lib/chat-turn-stream";
 import { extensionForPastedImageMime } from "lib/file-upload-config";
+import { queryKeys } from "lib/query-keys";
 import { ChatComposer } from "./chat-composer";
 import { mapApiMessage } from "./chat-format";
 import { ChatHeader } from "./chat-header";
 import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
 import { ChatUsageBanner } from "./chat-usage-banner";
-
-const USAGE_SCOPE_ANON = "__anon__";
 
 function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
   const ap = Boolean(a.pinned);
@@ -97,19 +96,19 @@ export function ChatShell() {
   );
 
   const chatsQuery = useQuery({
-    queryKey: ["chats"],
+    queryKey: queryKeys.chats.all,
     queryFn: () => getChats(),
   });
 
   const usageQuery = useQuery({
-    queryKey: ["usage", userId ?? USAGE_SCOPE_ANON],
+    queryKey: queryKeys.usage.scope(userId),
     queryFn: () => getMeUsage(),
     enabled: isLoaded,
   });
 
   useEffect(() => {
     if (!isLoaded || !userId) return;
-    queryClient.removeQueries({ queryKey: ["usage", USAGE_SCOPE_ANON] });
+    queryClient.removeQueries({ queryKey: queryKeys.usage.anonymous });
   }, [isLoaded, userId, queryClient]);
 
   const chatsForSidebar = chatsQuery.data ?? [];
@@ -124,7 +123,7 @@ export function ChatShell() {
   }, [isGuestMode, chatsQuery.isSuccess, chatsQuery.data, selectedChatId]);
 
   const chatDetailQuery = useQuery({
-    queryKey: ["chat", activeChatId],
+    queryKey: queryKeys.chat.detail(activeChatId),
     queryFn: () => getChatWithMessages(activeChatId!),
     enabled: Boolean(activeChatId),
   });
@@ -140,15 +139,15 @@ export function ChatShell() {
     mutationFn: () => createChat(),
     onSuccess: (chat) => {
       const row: ApiChat = { ...chat, pinned: Boolean(chat.pinned) };
-      queryClient.setQueryData<ChatWithMessages>(["chat", row.id], {
+      queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(row.id), {
         ...row,
         messages: [],
       });
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+      queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, (previous) => {
         const without = previous?.filter((c) => c.id !== row.id) ?? [];
         return [...without, row].sort(sortChatsForSidebar);
       });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chats.all });
       updateSelectedChatId(row.id);
       closeMobileSidebar();
     },
@@ -158,32 +157,32 @@ export function ChatShell() {
     mutationFn: ({ chatId, ...body }: { chatId: string; title?: string; pinned?: boolean }) =>
       patchChat(chatId, body),
     onSuccess: (chat) => {
-      queryClient.setQueryData<ChatWithMessages>(["chat", chat.id], (previous) =>
+      queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(chat.id), (previous) =>
         previous ? { ...previous, title: chat.title, pinned: chat.pinned, updatedAt: chat.updatedAt } : previous,
       );
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+      queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, (previous) => {
         if (!previous) return previous;
         const next = previous.map((c) => (c.id === chat.id ? chat : c));
         return [...next].sort(sortChatsForSidebar);
       });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chats.all });
     },
   });
 
   const deleteChatMutation = useMutation({
     mutationFn: (chatId: string) => deleteChat(chatId),
     onSuccess: (_, chatId) => {
-      queryClient.removeQueries({ queryKey: ["chat", chatId] });
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+      queryClient.removeQueries({ queryKey: queryKeys.chat.detail(chatId) });
+      queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, (previous) => {
         const next = previous?.filter((c) => c.id !== chatId) ?? [];
         return [...next].sort(sortChatsForSidebar);
       });
       updateSelectedChatId((current) => {
         if (current !== chatId) return current;
-        const list = queryClient.getQueryData<ApiChat[]>(["chats"]) ?? [];
+        const list = queryClient.getQueryData<ApiChat[]>(queryKeys.chats.all) ?? [];
         return list[0]?.id ?? null;
       });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.chats.all });
     },
   });
 
@@ -213,7 +212,7 @@ export function ChatShell() {
         rafId = null;
         const text = accumulated;
         if (!assistantMessageId) return;
-        queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (prev) => {
+        queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), (prev) => {
           if (!prev) return prev;
           return {
             ...prev,
@@ -235,7 +234,7 @@ export function ChatShell() {
           case "start": {
             assistantMessageId = evt.assistantMessage.id;
             accumulated = "";
-            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
+            queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), (previous) => {
               if (!previous) return previous;
               const withoutOptimistic = previous.messages.filter(
                 (m) => m.id !== variables.optimisticId,
@@ -260,7 +259,7 @@ export function ChatShell() {
               cancelAnimationFrame(rafId);
               rafId = null;
             }
-            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
+            queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), (previous) => {
               if (!previous) return previous;
               return {
                 ...previous,
@@ -273,9 +272,9 @@ export function ChatShell() {
             });
 
             if (evt.anonymousQuotaExhausted) {
-              queryClient.setQueryData<ApiChat[]>(["chats"], []);
+              queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, []);
             } else {
-              queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
+              queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, (previous) => {
                 if (!previous) return previous;
                 const next = previous.map((chat) =>
                   chat.id === variables.chatId
@@ -289,7 +288,7 @@ export function ChatShell() {
                 return [...next].sort(sortChatsForSidebar);
               });
             }
-            void queryClient.invalidateQueries({ queryKey: ["usage"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.usage.all });
             break;
           }
           case "error": {
@@ -298,8 +297,8 @@ export function ChatShell() {
               cancelAnimationFrame(rafId);
               rafId = null;
             }
-            void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
-            void queryClient.invalidateQueries({ queryKey: ["chats"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.chat.detail(variables.chatId) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.chats.all });
             break;
           }
           default:
@@ -308,13 +307,13 @@ export function ChatShell() {
       });
 
       if (!sawTerminalEvent) {
-        void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.chat.detail(variables.chatId) });
       }
     },
     onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: ["chat", variables.chatId] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.chat.detail(variables.chatId) });
 
-      const previousChat = queryClient.getQueryData<ChatWithMessages>(["chat", variables.chatId]);
+      const previousChat = queryClient.getQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId));
       const optimisticMessage: ApiMessage = {
         id: variables.optimisticId,
         chatId: variables.chatId,
@@ -324,7 +323,7 @@ export function ChatShell() {
       };
 
       if (previousChat) {
-        queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], {
+        queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), {
           ...previousChat,
           ...(variables.shouldRename ? { title: variables.nextTitle } : {}),
           messages: [...previousChat.messages, optimisticMessage],
@@ -335,17 +334,17 @@ export function ChatShell() {
     },
     onError: (error, variables, context) => {
       if (error instanceof ApiError && error.code === "FREE_LIMIT_EXCEEDED") {
-        queryClient.setQueryData<ApiChat[]>(["chats"], []);
-        queryClient.removeQueries({ queryKey: ["chat", variables.chatId] });
+        queryClient.setQueryData<ApiChat[]>(queryKeys.chats.all, []);
+        queryClient.removeQueries({ queryKey: queryKeys.chat.detail(variables.chatId) });
         updateSelectedChatId(null);
-        void queryClient.invalidateQueries({ queryKey: ["usage"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.usage.all });
         setDraft(variables.content);
         return;
       }
       if (context?.previousChat !== undefined) {
-        queryClient.setQueryData(["chat", variables.chatId], context.previousChat);
+        queryClient.setQueryData(queryKeys.chat.detail(variables.chatId), context.previousChat);
       } else {
-        void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.chat.detail(variables.chatId) });
       }
       setDraft(variables.content);
     },
@@ -434,7 +433,7 @@ export function ChatShell() {
         : attachmentLines.join("\n");
 
     const detail =
-      queryClient.getQueryData<ChatWithMessages>(["chat", chatId]) ?? chatDetailQuery.data;
+      queryClient.getQueryData<ChatWithMessages>(queryKeys.chat.detail(chatId)) ?? chatDetailQuery.data;
     const wasEmpty = (detail?.messages.length ?? 0) === 0;
     const currentTitle = detail?.title ?? "";
     const shouldRename = wasEmpty && (currentTitle === DEFAULT_CHAT_TITLE || currentTitle.length === 0);

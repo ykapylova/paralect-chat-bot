@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@supabase/supabase-js";
 import { useEffect, useMemo } from "react";
 import { getMeUsage } from "lib/api-client";
+import { queryKeys } from "lib/query-keys";
 import {
   CHATS_SYNC_EVENT,
   type ChatsSyncPayload,
@@ -17,7 +18,7 @@ export function ChatsRealtimeSync() {
   const { isLoaded, userId } = useAuth();
 
   const usageQuery = useQuery({
-    queryKey: ["usage", "__anon__"],
+    queryKey: queryKeys.usage.anonymous,
     queryFn: () => getMeUsage(),
     enabled: isLoaded && !userId,
   });
@@ -42,10 +43,10 @@ export function ChatsRealtimeSync() {
     const channel = supabase
       .channel(chatsSyncChannelName(principalUserId))
       .on("broadcast", { event: CHATS_SYNC_EVENT }, ({ payload }) => {
-        void queryClient.invalidateQueries({ queryKey: ["chats"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.chats.all });
         const p = payload as ChatsSyncPayload | null | undefined;
         if (p?.chatId) {
-          void queryClient.invalidateQueries({ queryKey: ["chat", p.chatId] });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.chat.detail(p.chatId) });
         }
       });
 
