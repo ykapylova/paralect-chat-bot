@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { env } from "server/env";
 import { jsonAck, jsonErr, jsonOk } from "server/http/json-api";
 
 const ANON_COOKIE = "anon_session";
@@ -21,7 +22,7 @@ function buildAnonSessionCookie(sessionId: string): string {
     "SameSite=Lax",
     "HttpOnly",
   ];
-  if (process.env.NODE_ENV === "production") {
+  if (env.nodeEnv === "production") {
     segments.push("Secure");
   }
   return segments.join("; ");

@@ -5,6 +5,8 @@ import type {
 import { z } from "zod";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
+import { CHAT_MAX_OPENAI_FILES } from "../limits";
+import { env } from "../env";
 import { chatRepository } from "../repositories/chat.repository";
 import { ChatMessage, ChatRole } from "../types/chat";
 import {
@@ -173,11 +175,6 @@ async function buildUserMessageContentParts(
   return finalizeUserContentParts(parts, content);
 }
 
-const MAX_OPENAI_CHAT_FILES = Math.max(
-  1,
-  Number.parseInt(process.env.CHAT_MAX_OPENAI_FILES ?? "8", 10) || 8,
-);
-
 /**
  * Last user turn: re-attach every chat document from **earlier** user messages so
  * follow-ups like "who is the contractor?" still receive the same PDF/DOCX context.
@@ -196,7 +193,7 @@ async function buildLastUserOpenAiContent(
       return;
     }
     if (uploadedUrls.has(h.url)) return;
-    if (filePartCount >= MAX_OPENAI_CHAT_FILES) {
+    if (filePartCount >= CHAT_MAX_OPENAI_FILES) {
       parts.push({
         type: "text",
         text: `[Document: ${h.label}] (attachment limit reached for this request)`,
@@ -279,7 +276,7 @@ async function buildOpenAiMessages(rows: ChatMessage[]): Promise<{
   const ephemeralOpenAiFileIds: string[] = [];
   try {
     const out: ChatCompletionMessageParam[] = [];
-    const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
+    const systemFromEnv = env.openaiSystemPrompt;
     if (systemFromEnv) {
       out.push({ role: "system", content: systemFromEnv });
     }

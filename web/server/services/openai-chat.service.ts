@@ -1,16 +1,18 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
+import { env } from "../env";
+
 export function getOpenAIClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey?.trim()) {
+  const apiKey = env.openaiApiKey;
+  if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
   return new OpenAI({ apiKey });
 }
 
 export function defaultChatModel(): string {
-  return process.env.OPENAI_CHAT_MODEL?.trim() || "gpt-4o-mini";
+  return env.openaiChatModel;
 }
 
 export async function createChatCompletionStream(messages: ChatCompletionMessageParam[]) {
