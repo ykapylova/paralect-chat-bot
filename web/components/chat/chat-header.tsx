@@ -1,6 +1,8 @@
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { Menu } from "lucide-react";
+import { Button, buttonVariants } from "components/ui/button";
+import { cn } from "lib/utils";
 
 type ChatHeaderProps = {
   isGuestMode: boolean;
@@ -28,15 +30,16 @@ export function ChatHeader({
     <header className="relative z-[50] flex h-14 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--background)] px-4 md:border-b-0">
       <div className="flex items-center gap-2">
         {showMenu ? (
-          <button
+          <Button
             aria-expanded={menuOpen}
             aria-label={menuOpen ? "Close sidebar" : "Open sidebar"}
-            className="shrink-0 cursor-pointer rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+            className="shrink-0 cursor-pointer rounded-lg"
             onClick={onToggleSidebar}
-            type="button"
+            size="icon"
+            variant="ghost"
           >
             <Menu className="h-5 w-5" strokeWidth={2} />
-          </button>
+          </Button>
         ) : null}
         <span className="text-sm font-medium">
           {isGuestMode ? (activeChatId ? activeTitle : "Chat") : activeChatId ? activeTitle : "Chatbot"}
@@ -46,7 +49,7 @@ export function ChatHeader({
         <span className="hidden text-xs text-[var(--muted)] sm:inline">{chatModelLabel}</span>
         {isGuestMode ? (
           <Link
-            className="cursor-pointer rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[#eceff3]"
+            className={cn(buttonVariants({ variant: "outline" }), "cursor-pointer rounded-full px-3 py-1.5")}
             href="/sign-in"
           >
             Sign in
