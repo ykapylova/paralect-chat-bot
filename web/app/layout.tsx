@@ -6,6 +6,11 @@ import { QueryProvider } from "../components/providers/query-provider";
 export const metadata: Metadata = {
   title: "Chatbot UI",
   description: "ChatGPT-like chatbot interface demo",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({

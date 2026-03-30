@@ -2,9 +2,11 @@
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { MoreVertical, Pin, Plus, Search, X } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Chat as ApiChat } from "server/types/chat";
 import { CHAT_AUTO_TITLE_MAX_LENGTH } from "lib/chat-ui-constants";
+import logoImage from "../../app/logo.png";
 import { formatChatSubtitle } from "./chat-format";
 
 type PatchChatInput = { chatId: string; title?: string; pinned?: boolean };
@@ -101,6 +103,11 @@ export function ChatSidebar({
       aria-hidden={!open}
       className={`flex w-[min(280px,100vw)] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel-soft)] p-3 max-md:fixed max-md:bottom-0 max-md:left-0 max-md:top-14 max-md:z-[45] max-md:overflow-y-auto max-md:transition-transform max-md:duration-200 max-md:ease-out max-md:shadow-[4px_0_28px_rgba(0,0,0,0.12)] md:relative md:top-auto md:z-auto md:h-screen md:max-h-none md:translate-x-0 md:overflow-y-auto md:shadow-none ${open ? "max-md:translate-x-0" : "max-md:pointer-events-none max-md:-translate-x-full"} ${open ? "md:flex" : "md:hidden"}`}
     >
+      <div className="mb-3 flex items-center gap-2 px-1">
+        <Image alt="AI Assistant logo" className="h-7 w-7 rounded-md" priority src={logoImage} />
+        <p className="text-sm font-semibold tracking-tight">AI Assistant</p>
+      </div>
+
       <button
         className="mb-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm font-medium transition duration-200 hover:bg-[#f9fafb] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
         disabled={createPending}
