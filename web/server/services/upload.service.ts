@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import {
   CHAT_UPLOAD_DOCUMENT_MIME_SET,
   CHAT_UPLOAD_IMAGE_MIME_SET,
+  inferDocumentMimeFromFilename,
+  inferImageMimeFromFilename,
 } from "lib/file-upload-config";
 import { UPLOAD_DOCUMENT_MAX_MB, UPLOAD_IMAGE_MAX_MB } from "../limits";
 import {
@@ -66,8 +68,13 @@ async function storeFile(
     throw new UploadValidationError("File storage is not configured", "STORAGE_UNAVAILABLE");
   }
 
-  const mimeType = normalizeMimeType(file.type || "application/octet-stream");
+  let mimeType = normalizeMimeType(file.type || "application/octet-stream");
   const allowed = kind === "image" ? CHAT_UPLOAD_IMAGE_MIME_SET : CHAT_UPLOAD_DOCUMENT_MIME_SET;
+  if (!allowed.has(mimeType)) {
+    const inferred =
+      kind === "image" ? inferImageMimeFromFilename(file.name) : inferDocumentMimeFromFilename(file.name);
+    if (inferred) mimeType = inferred;
+  }
   if (!allowed.has(mimeType)) {
     throw new UploadValidationError(`Unsupported file type: ${mimeType || "unknown"}`, "INVALID_MIME");
   }

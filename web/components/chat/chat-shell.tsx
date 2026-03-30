@@ -16,6 +16,7 @@ import { ApiError, uploadChatImage, uploadChatUserPickedFile } from "lib/api-cli
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import type { ChatUploadResult } from "lib/api-types/upload";
 import { CHAT_AUTO_TITLE_MAX_LENGTH, CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX } from "lib/chat-ui-constants";
+import { isAllowedChatImageFile, isAllowedChatUserPickedFile } from "lib/file-upload-config";
 import { queryKeys } from "lib/query-keys";
 
 import { ChatComposer } from "./chat-composer";
@@ -242,12 +243,37 @@ export function ChatShell() {
     }
   };
 
+  const attachmentTypeError =
+    "Unsupported file type. Use PDF, TXT, Word, or images (PNG, JPEG, GIF, WebP).";
+
   const handleFilePick = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedFile(event.target.files?.[0] ?? null);
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+    if (!isAllowedChatUserPickedFile(file)) {
+      setAttachmentError(attachmentTypeError);
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError(null);
+    setSelectedFile(file);
   };
 
   const handleImagePick = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedImage(event.target.files?.[0] ?? null);
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setSelectedImage(null);
+      return;
+    }
+    if (!isAllowedChatImageFile(file)) {
+      setAttachmentError(attachmentTypeError);
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError(null);
+    setSelectedImage(file);
   };
 
   const sendDisabled =
@@ -268,6 +294,11 @@ export function ChatShell() {
     if (attachmentDisabled || textareaDisabled) return;
     const file = imageFileFromComposerPaste(event);
     if (!file) return;
+    if (!isAllowedChatImageFile(file)) {
+      event.preventDefault();
+      setAttachmentError(attachmentTypeError);
+      return;
+    }
     event.preventDefault();
     setAttachmentError(null);
     void (async () => {

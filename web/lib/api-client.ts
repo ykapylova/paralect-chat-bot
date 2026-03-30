@@ -1,10 +1,7 @@
 import type { Chat as ApiChat, ChatWithMessages } from "server/types/chat";
 import type { MeUsageData } from "lib/api-types/chat";
 import type { ChatUploadResult } from "lib/api-types/upload";
-import {
-  CHAT_UPLOAD_IMAGE_FILENAME_EXT_REGEX,
-  isChatImageUploadMime,
-} from "./file-upload-config";
+import { shouldTreatUserFileAsImage } from "./file-upload-config";
 import { apiPaths } from "./api-paths";
 
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -121,12 +118,6 @@ async function apiDelete(path: string): Promise<void> {
   }
 }
 
-function shouldUploadFileAsImage(file: File): boolean {
-  const base = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (isChatImageUploadMime(base)) return true;
-  return CHAT_UPLOAD_IMAGE_FILENAME_EXT_REGEX.test(file.name);
-}
-
 export async function getChats(): Promise<ApiChat[]> {
   return apiGet<ApiChat[]>(apiPaths.chats());
 }
@@ -181,5 +172,5 @@ export async function uploadChatDocument(file: File): Promise<ChatUploadResult> 
 }
 
 export async function uploadChatUserPickedFile(file: File): Promise<ChatUploadResult> {
-  return shouldUploadFileAsImage(file) ? uploadChatImage(file) : uploadChatDocument(file);
+  return shouldTreatUserFileAsImage(file) ? uploadChatImage(file) : uploadChatDocument(file);
 }

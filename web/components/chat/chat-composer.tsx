@@ -1,5 +1,6 @@
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, RefObject } from "react";
 import { ImageIcon, MessageCircle, Paperclip, SendHorizontal, X } from "lucide-react";
+import { CHAT_COMPOSER_DOCUMENT_INPUT_ACCEPT } from "lib/file-upload-config";
 
 type ChatComposerProps = {
   formRef: RefObject<HTMLFormElement | null>;
@@ -121,7 +122,13 @@ export function ChatComposer({
               </button>
             </div>
           </div>
-          <input className="hidden" onChange={onPickFile} ref={fileInputRef} type="file" />
+          <input
+            accept={CHAT_COMPOSER_DOCUMENT_INPUT_ACCEPT}
+            className="hidden"
+            onChange={onPickFile}
+            ref={fileInputRef}
+            type="file"
+          />
           <input accept="image/*" className="hidden" onChange={onPickImage} ref={imageInputRef} type="file" />
           <div className="flex items-center gap-2 px-2 pb-1 pt-1 text-[11px] text-[var(--muted)]">
             <MessageCircle className="h-3.5 w-3.5" />
