@@ -21,8 +21,6 @@ import { sortChatsForSidebar } from "./chat-shell-utils";
 type SendTurnVariables = {
   chatId: string;
   content: string;
-  shouldRename: boolean;
-  nextTitle: string;
   optimisticId: string;
 };
 
@@ -94,10 +92,7 @@ export function useChatMutations({
 
   const sendMutation = useMutation({
     mutationFn: async (variables: SendTurnVariables) => {
-      const res = await postChatTurn(variables.chatId, {
-        content: variables.content,
-        ...(variables.shouldRename ? { renameTitle: variables.nextTitle } : {}),
-      });
+      const res = await postChatTurn(variables.chatId, { content: variables.content });
 
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("text/event-stream")) {
@@ -225,7 +220,6 @@ export function useChatMutations({
       if (previousChat) {
         queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), {
           ...previousChat,
-          ...(variables.shouldRename ? { title: variables.nextTitle } : {}),
           messages: [...previousChat.messages, optimisticMessage],
         });
       }

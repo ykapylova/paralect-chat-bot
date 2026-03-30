@@ -23,3 +23,34 @@ export async function createChatCompletionStream(messages: ChatCompletionMessage
     stream: true,
   });
 }
+
+export async function generateShortChatTitle(firstUserMessage: string): Promise<string | null> {
+  const input = firstUserMessage.trim();
+  if (!input) return null;
+
+  const client = getOpenAIClient();
+  const completion = await client.chat.completions.create({
+    model: defaultChatModel(),
+    temperature: 0.2,
+    max_tokens: 24,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Generate a concise chat title. Return plain text only, 2-6 words, no quotes, no markdown, no trailing punctuation.",
+      },
+      {
+        role: "user",
+        content: input,
+      },
+    ],
+  });
+
+  const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+  if (!raw) return null;
+  const oneLine = raw.replace(/\s+/g, " ").trim();
+  const noQuotes = oneLine.replace(/^["'`]+|["'`]+$/g, "").trim();
+  const words = noQuotes.split(/\s+/).slice(0, 6);
+  const title = words.join(" ").slice(0, 120).trim();
+  return title || null;
+}

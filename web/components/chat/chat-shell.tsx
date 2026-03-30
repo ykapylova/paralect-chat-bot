@@ -13,9 +13,8 @@ import {
 
 import type { ChatWithMessages } from "server/types/chat";
 import { ApiError, uploadChatImage, uploadChatUserPickedFile } from "lib/api-client";
-import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import type { ChatUploadResult } from "lib/api-types/upload";
-import { CHAT_AUTO_TITLE_MAX_LENGTH, CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX } from "lib/chat-ui-constants";
+import { CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX } from "lib/chat-ui-constants";
 import { isAllowedChatImageFile, isAllowedChatUserPickedFile } from "lib/file-upload-config";
 import { queryKeys } from "lib/query-keys";
 
@@ -176,13 +175,6 @@ export function ChatShell() {
           : text
         : attachmentLines.join("\n");
 
-    const detail =
-      queryClient.getQueryData<ChatWithMessages>(queryKeys.chat.detail(chatId)) ?? chatDetailQuery.data;
-    const wasEmpty = (detail?.messages.length ?? 0) === 0;
-    const currentTitle = detail?.title ?? "";
-    const shouldRename = wasEmpty && (currentTitle === DEFAULT_CHAT_TITLE || currentTitle.length === 0);
-    const nextTitle = content.slice(0, CHAT_AUTO_TITLE_MAX_LENGTH);
-
     setDraft("");
     setSelectedFile(null);
     setSelectedImage(null);
@@ -192,8 +184,6 @@ export function ChatShell() {
     sendMutation.mutate({
       chatId,
       content,
-      shouldRename,
-      nextTitle,
       optimisticId: `optimistic-${crypto.randomUUID()}`,
     });
   };

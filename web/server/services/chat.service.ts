@@ -15,6 +15,7 @@ import {
   looksLikeChatDocumentUrl,
   uploadChatDocumentFromUrl,
 } from "./openai-document-upload.service";
+import { generateShortChatTitle } from "./openai-chat.service";
 
 const createChatBodySchema = z.object({
   title: z.string().min(1).max(120).optional(),
@@ -38,6 +39,11 @@ const sendTurnSchema = z.object({
   content: z.string().min(1),
   renameTitle: z.string().min(1).max(120).optional(),
 });
+
+function fallbackTitleFromFirstMessage(content: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.slice(0, 120) || DEFAULT_CHAT_TITLE;
+}
 
 type ContentHit =
   | { kind: "image"; start: number; end: number; alt: string; url: string }
@@ -379,6 +385,7 @@ export const chatService = {
     const { content, renameTitle } = sendTurnSchema.parse(input);
     const chat = await this.getChatForUser(chatId, userId);
     if (!chat) return null;
+    const messagesBeforeTurn = await chatRepository.listMessages(chatId);
 
     const userMessage = await chatRepository.addMessage(chatId, "user", content);
     if (!userMessage) return null;
@@ -387,6 +394,20 @@ export const chatService = {
     if (renameTitle) {
       const updated = await chatRepository.updateChat(chatId, { title: renameTitle });
       if (updated) title = updated.title;
+    } else {
+      const isFirstUserTurn = messagesBeforeTurn.length === 0;
+      const shouldAutoTitle = isFirstUserTurn && chat.title === DEFAULT_CHAT_TITLE;
+      if (shouldAutoTitle) {
+        const nextTitle = await (async () => {
+          try {
+            return (await generateShortChatTitle(content)) ?? fallbackTitleFromFirstMessage(content);
+          } catch {
+            return fallbackTitleFromFirstMessage(content);
+          }
+        })();
+        const updated = await chatRepository.updateChat(chatId, { title: nextTitle });
+        if (updated) title = updated.title;
+      }
     }
 
     const assistantMessage = await chatRepository.addMessage(chatId, "assistant", "");
