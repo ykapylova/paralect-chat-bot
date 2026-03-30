@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
+import { Loader2 } from "lucide-react";
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent } from "react";
 import {
   type SetStateAction,
@@ -28,6 +29,8 @@ import { useChatQueries } from "./use-chat-queries";
 export function ChatShell() {
   const { isLoaded, userId } = useAuth();
   const isGuestMode = isLoaded && !userId;
+  /** Sidebar only for signed-in users — avoids showing it while Clerk `isLoaded` is still false. */
+  const isSignedInUser = isLoaded && Boolean(userId);
 
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [sidebarRenamingChatId, setSidebarRenamingChatId] = useState<string | null>(null);
@@ -350,9 +353,23 @@ export function ChatShell() {
     };
   }, [showSidebar, isGuestMode]);
 
+  if (!isLoaded) {
+    return (
+      <div
+        aria-busy="true"
+        aria-label="Loading"
+        className="flex h-screen w-full flex-col items-center justify-center gap-3 bg-[var(--background)] text-[var(--foreground)]"
+        role="status"
+      >
+        <Loader2 aria-hidden className="h-9 w-9 animate-spin text-[var(--muted)]" strokeWidth={2} />
+        <span className="text-sm text-[var(--muted)]">Loading…</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      {!isGuestMode ? (
+      {isSignedInUser ? (
         <ChatSidebar
           activeChatId={activeChatId}
           chats={chatsForSidebar}
@@ -382,7 +399,7 @@ export function ChatShell() {
           isGuestMode={isGuestMode}
           menuOpen={showSidebar}
           onToggleSidebar={() => setShowSidebar((prev) => !prev)}
-          showMenu={!isGuestMode}
+          showMenu={isSignedInUser}
         />
 
         <ChatUsageBanner usage={usage} />
@@ -427,7 +444,7 @@ export function ChatShell() {
         />
       </main>
 
-      {!isGuestMode && showSidebar ? (
+      {isSignedInUser && showSidebar ? (
         <button
           aria-label="Close menu"
           className="fixed bottom-0 left-0 right-0 top-14 z-[40] cursor-pointer bg-black/40 backdrop-blur-[2px] md:hidden animate-chat-fade-up"
