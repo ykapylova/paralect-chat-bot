@@ -24,7 +24,7 @@ export function formatChatSubtitle(iso: string): string {
 
 export function mapApiMessage(row: ApiMessage): UiMessage {
   const role: UiRole = row.role === "assistant" || row.role === "system" ? "assistant" : "user";
-  const isPending = row.id.startsWith("optimistic-");
+  const isPending = role === "assistant" && row.content.trim().length === 0;
   return {
     id: row.id,
     role,

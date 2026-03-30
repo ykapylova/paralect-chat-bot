@@ -7,6 +7,7 @@ import { chatRepository } from "server/repositories/chat.repository";
 import { chatService } from "server/services/chat.service";
 import { createChatCompletionStream } from "server/services/openai-chat.service";
 import { deleteOpenAiFile } from "server/services/openai-document-upload.service";
+import { isOpenAiConfigured } from "server/env";
 import { usageService } from "server/services/usage.service";
 
 type RouteContext = {
@@ -35,7 +36,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
   }
 
-  if (!process.env.OPENAI_API_KEY?.trim()) {
+  if (!isOpenAiConfigured()) {
     return jsonErrWithPrincipal(principal, "Chat model is not configured.", 503, {
       code: "LLM_UNAVAILABLE",
     });

@@ -1,112 +1,64 @@
-import type { ReactNode } from "react";
-
-type Segment =
-  | { type: "text"; value: string }
-  | { type: "image"; alt: string; url: string }
-  | { type: "link"; label: string; url: string };
-
-/**
- * Parses `![alt](url)` and `[label](url)` (not preceded by `!`) into segments.
- * Plain text stays as-is so assistant replies still render normally.
- */
-function parseMessageSegments(raw: string): Segment[] {
-  const hits: { start: number; end: number; seg: Segment }[] = [];
-
-  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = imgRe.exec(raw)) !== null) {
-    hits.push({
-      start: m.index,
-      end: m.index + m[0].length,
-      seg: { type: "image", alt: m[1], url: m[2] },
-    });
-  }
-
-  const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g;
-  while ((m = linkRe.exec(raw)) !== null) {
-    if (m.index > 0 && raw[m.index - 1] === "!") continue;
-    hits.push({
-      start: m.index,
-      end: m.index + m[0].length,
-      seg: { type: "link", label: m[1], url: m[2] },
-    });
-  }
-
-  hits.sort((a, b) => a.start - b.start);
-
-  const segments: Segment[] = [];
-  let cursor = 0;
-  for (const hit of hits) {
-    if (hit.start < cursor) continue;
-    if (hit.start > cursor) {
-      segments.push({ type: "text", value: raw.slice(cursor, hit.start) });
-    }
-    segments.push(hit.seg);
-    cursor = hit.end;
-  }
-  if (cursor < raw.length) {
-    segments.push({ type: "text", value: raw.slice(cursor) });
-  }
-
-  return segments;
-}
+import type { Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type MessageContentProps = {
   text: string;
 };
 
 export function MessageContent({ text }: MessageContentProps) {
-  const segments = parseMessageSegments(text);
-  const hasRich = segments.some((s) => s.type !== "text");
-
-  if (!hasRich) {
-    return <p className="whitespace-pre-wrap">{text}</p>;
-  }
-
-  const nodes: ReactNode[] = [];
-  segments.forEach((s, i) => {
-    if (s.type === "text") {
-      if (s.value) {
-        nodes.push(
-          <span key={i} className="whitespace-pre-wrap">
-            {s.value}
-          </span>,
-        );
-      }
-      return;
-    }
-    if (s.type === "image") {
-      nodes.push(
-        <a
-          key={i}
-          className="block w-fit max-w-full"
-          href={s.url}
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- remote signed URLs */}
-          <img
-            alt={s.alt || "Image attachment"}
-            className="max-h-72 max-w-full rounded-lg border border-[var(--border)] object-contain"
-            loading="lazy"
-            src={s.url}
-          />
-        </a>,
-      );
-      return;
-    }
-    nodes.push(
+  const components: Components = {
+    p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+    a: ({ href, children }) => (
       <a
-        key={i}
-        className="inline-flex items-center gap-1 font-medium text-[#2563eb] underline decoration-[#2563eb]/40 underline-offset-2 hover:decoration-[#2563eb]"
-        href={s.url}
+        className="inline-flex cursor-pointer items-center gap-1 font-medium text-[#2563eb] underline decoration-[#2563eb]/40 underline-offset-2 hover:decoration-[#2563eb]"
+        href={href}
         rel="noopener noreferrer"
         target="_blank"
       >
-        {s.label}
-      </a>,
-    );
-  });
+        {children}
+      </a>
+    ),
+    img: ({ src, alt }) => (
+      <a
+        className="block w-fit max-w-full"
+        href={typeof src === "string" ? src : "#"}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- remote signed URLs */}
+        <img
+          alt={alt || "Image attachment"}
+          className="max-h-72 max-w-full rounded-lg border border-[var(--border)] object-contain"
+          loading="lazy"
+          src={typeof src === "string" ? src : undefined}
+        />
+      </a>
+    ),
+    code: ({ className, children }) => {
+      const raw = String(children);
+      const isBlock = Boolean(className?.includes("language-")) || raw.includes("\n");
+      return isBlock ? (
+        <code className="block overflow-x-auto whitespace-pre rounded-lg bg-[var(--panel-soft)] p-3 text-[0.92em]">
+          {children}
+        </code>
+      ) : (
+        <code className="rounded bg-[var(--panel-soft)] px-1 py-0.5 text-[0.9em]">{children}</code>
+      );
+    },
+    pre: ({ children }) => <>{children}</>,
+    ul: ({ children }) => <ul className="list-disc space-y-1 pl-6">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal space-y-1 pl-6">{children}</ol>,
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-2 border-[var(--border)] pl-3 text-[var(--muted)]">{children}</blockquote>
+    ),
+  };
 
-  return <div className="flex flex-col gap-3">{nodes}</div>;
+  return (
+    <div className="flex flex-col gap-3">
+      <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }

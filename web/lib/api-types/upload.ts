@@ -1,4 +1,3 @@
-/** `POST /api/uploads/image` | `POST /api/uploads/document` → `data` */
 export type ChatUploadResult = {
   id: string;
   type: "image" | "document";

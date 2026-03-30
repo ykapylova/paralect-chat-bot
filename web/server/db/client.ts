@@ -1,6 +1,8 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+
+import { env } from "../env";
 
 declare global {
   var __chatbotDbPool: Pool | undefined;
@@ -10,7 +12,7 @@ declare global {
 function getPool() {
   if (global.__chatbotDbPool) return global.__chatbotDbPool;
 
-  const connectionString = process.env.DATABASE_URL
+  const connectionString = env.databaseUrl;
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. Configure your database URL.");
   }

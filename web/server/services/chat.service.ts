@@ -5,6 +5,8 @@ import type {
 import { z } from "zod";
 import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
 import { ANON_USER_PREFIX } from "../auth/chat-principal";
+import { CHAT_MAX_OPENAI_FILES } from "../limits";
+import { env } from "../env";
 import { chatRepository } from "../repositories/chat.repository";
 import { ChatMessage, ChatRole } from "../types/chat";
 import {
@@ -13,6 +15,7 @@ import {
   looksLikeChatDocumentUrl,
   uploadChatDocumentFromUrl,
 } from "./openai-document-upload.service";
+import { generateShortChatTitle } from "./openai-chat.service";
 
 const createChatBodySchema = z.object({
   title: z.string().min(1).max(120).optional(),
@@ -36,6 +39,11 @@ const sendTurnSchema = z.object({
   content: z.string().min(1),
   renameTitle: z.string().min(1).max(120).optional(),
 });
+
+function fallbackTitleFromFirstMessage(content: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.slice(0, 120) || DEFAULT_CHAT_TITLE;
+}
 
 type ContentHit =
   | { kind: "image"; start: number; end: number; alt: string; url: string }
@@ -173,11 +181,6 @@ async function buildUserMessageContentParts(
   return finalizeUserContentParts(parts, content);
 }
 
-const MAX_OPENAI_CHAT_FILES = Math.max(
-  1,
-  Number.parseInt(process.env.CHAT_MAX_OPENAI_FILES ?? "8", 10) || 8,
-);
-
 /**
  * Last user turn: re-attach every chat document from **earlier** user messages so
  * follow-ups like "who is the contractor?" still receive the same PDF/DOCX context.
@@ -196,7 +199,7 @@ async function buildLastUserOpenAiContent(
       return;
     }
     if (uploadedUrls.has(h.url)) return;
-    if (filePartCount >= MAX_OPENAI_CHAT_FILES) {
+    if (filePartCount >= CHAT_MAX_OPENAI_FILES) {
       parts.push({
         type: "text",
         text: `[Document: ${h.label}] (attachment limit reached for this request)`,
@@ -279,7 +282,7 @@ async function buildOpenAiMessages(rows: ChatMessage[]): Promise<{
   const ephemeralOpenAiFileIds: string[] = [];
   try {
     const out: ChatCompletionMessageParam[] = [];
-    const systemFromEnv = process.env.OPENAI_SYSTEM_PROMPT?.trim();
+    const systemFromEnv = env.openaiSystemPrompt;
     if (systemFromEnv) {
       out.push({ role: "system", content: systemFromEnv });
     }
@@ -382,6 +385,7 @@ export const chatService = {
     const { content, renameTitle } = sendTurnSchema.parse(input);
     const chat = await this.getChatForUser(chatId, userId);
     if (!chat) return null;
+    const messagesBeforeTurn = await chatRepository.listMessages(chatId);
 
     const userMessage = await chatRepository.addMessage(chatId, "user", content);
     if (!userMessage) return null;
@@ -390,6 +394,20 @@ export const chatService = {
     if (renameTitle) {
       const updated = await chatRepository.updateChat(chatId, { title: renameTitle });
       if (updated) title = updated.title;
+    } else {
+      const isFirstUserTurn = messagesBeforeTurn.length === 0;
+      const shouldAutoTitle = isFirstUserTurn && chat.title === DEFAULT_CHAT_TITLE;
+      if (shouldAutoTitle) {
+        const nextTitle = await (async () => {
+          try {
+            return (await generateShortChatTitle(content)) ?? fallbackTitleFromFirstMessage(content);
+          } catch {
+            return fallbackTitleFromFirstMessage(content);
+          }
+        })();
+        const updated = await chatRepository.updateChat(chatId, { title: nextTitle });
+        if (updated) title = updated.title;
+      }
     }
 
     const assistantMessage = await chatRepository.addMessage(chatId, "assistant", "");

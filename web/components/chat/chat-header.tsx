@@ -26,7 +26,7 @@ export function ChatHeader({
           <button
             aria-expanded={menuOpen}
             aria-label={menuOpen ? "Close sidebar" : "Open sidebar"}
-            className="shrink-0 rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+            className="shrink-0 cursor-pointer rounded-lg p-2 text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
             onClick={onToggleSidebar}
             type="button"
           >
@@ -41,7 +41,7 @@ export function ChatHeader({
         <span className="hidden text-xs text-[var(--muted)] sm:inline">GPT-4.1 mini</span>
         {isGuestMode ? (
           <Link
-            className="rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[#eceff3]"
+            className="cursor-pointer rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[#eceff3]"
             href="/sign-in"
           >
             Sign in

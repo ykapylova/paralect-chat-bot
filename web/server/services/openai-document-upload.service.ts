@@ -1,9 +1,11 @@
 import { toFile } from "openai";
 
+import { env } from "../env";
+import { DOCUMENT_FETCH_MAX_BYTES } from "../limits";
 import { getOpenAIClient } from "./openai-chat.service";
 
 function supabaseProjectHost(): string | null {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const base = env.supabaseUrl;
   if (!base) return null;
   try {
     return new URL(base).hostname;
@@ -55,7 +57,7 @@ function defaultMimeForName(name: string): string {
 export async function fetchStorageFileSignedUrl(
   url: string,
 ): Promise<{ buffer: Buffer; contentType: string; filenameHint: string }> {
-  const maxBytes = Number.parseInt(process.env.DOCUMENT_FETCH_MAX_BYTES ?? String(25 * 1024 * 1024), 10);
+  const maxBytes = DOCUMENT_FETCH_MAX_BYTES;
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 60_000);
   try {

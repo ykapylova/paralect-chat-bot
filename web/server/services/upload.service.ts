@@ -1,6 +1,13 @@
 import { randomUUID } from "crypto";
 
 import {
+  CHAT_UPLOAD_DOCUMENT_MIME_SET,
+  CHAT_UPLOAD_IMAGE_MIME_SET,
+  inferDocumentMimeFromFilename,
+  inferImageMimeFromFilename,
+} from "lib/file-upload-config";
+import { UPLOAD_DOCUMENT_MAX_MB, UPLOAD_IMAGE_MAX_MB } from "../limits";
+import {
   getStorageBucketName,
   getSignedUrlForPath,
   isChatStorageConfigured,
@@ -18,35 +25,17 @@ export class UploadValidationError extends Error {
   }
 }
 
-const IMAGE_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/gif",
-  "image/webp",
-]);
-
-const DOCUMENT_MIMES = new Set([
-  "application/pdf",
-  "text/plain",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
-/** Strip parameters (e.g. `image/png; charset=binary` → `image/png`). */
 function normalizeMimeType(raw: string): string {
   const base = raw.split(";")[0]?.trim().toLowerCase() ?? "";
   return base || "application/octet-stream";
 }
 
 function imageMaxBytes(): number {
-  const mb = Number.parseFloat(process.env.UPLOAD_IMAGE_MAX_MB ?? "8");
-  return (Number.isFinite(mb) ? mb : 8) * 1024 * 1024;
+  return UPLOAD_IMAGE_MAX_MB * 1024 * 1024;
 }
 
 function documentMaxBytes(): number {
-  const mb = Number.parseFloat(process.env.UPLOAD_DOCUMENT_MAX_MB ?? "20");
-  return (Number.isFinite(mb) ? mb : 20) * 1024 * 1024;
+  return UPLOAD_DOCUMENT_MAX_MB * 1024 * 1024;
 }
 
 function sanitizeFilename(name: string): string {
@@ -79,8 +68,13 @@ async function storeFile(
     throw new UploadValidationError("File storage is not configured", "STORAGE_UNAVAILABLE");
   }
 
-  const mimeType = normalizeMimeType(file.type || "application/octet-stream");
-  const allowed = kind === "image" ? IMAGE_MIMES : DOCUMENT_MIMES;
+  let mimeType = normalizeMimeType(file.type || "application/octet-stream");
+  const allowed = kind === "image" ? CHAT_UPLOAD_IMAGE_MIME_SET : CHAT_UPLOAD_DOCUMENT_MIME_SET;
+  if (!allowed.has(mimeType)) {
+    const inferred =
+      kind === "image" ? inferImageMimeFromFilename(file.name) : inferDocumentMimeFromFilename(file.name);
+    if (inferred) mimeType = inferred;
+  }
   if (!allowed.has(mimeType)) {
     throw new UploadValidationError(`Unsupported file type: ${mimeType || "unknown"}`, "INVALID_MIME");
   }

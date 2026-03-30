@@ -5,12 +5,14 @@ import {
   chatsSyncChannelName,
 } from "lib/realtime/chats-sync-channel";
 
+import { env } from "../env";
+
 export async function notifyChatsSync(
   principalUserId: string,
   extra?: Pick<ChatsSyncPayload, "chatId">,
 ): Promise<void> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = env.supabaseUrl;
+  const serviceKey = env.supabaseServiceRoleKey;
   if (!url || !serviceKey) return;
 
   const supabase = createClient(url, serviceKey, {

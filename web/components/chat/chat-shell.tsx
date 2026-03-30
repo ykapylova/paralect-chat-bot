@@ -1,65 +1,31 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent } from "react";
 import {
-  ChangeEvent,
-  FormEvent,
-  KeyboardEvent,
   type SetStateAction,
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import type { Chat as ApiChat, ChatMessage as ApiMessage, ChatWithMessages } from "server/types/chat";
-import {
-  ApiError,
-  apiDelete,
-  apiGet,
-  apiPatch,
-  apiPost,
-  apiUploadFile,
-  readApiError,
-} from "lib/api-client";
-import { DEFAULT_CHAT_TITLE } from "lib/chat-defaults";
-import type { ChatTurnStreamEvent, MeUsageData } from "lib/api-types/chat";
+
+import { ApiError, uploadChatImage, uploadChatUserPickedFile } from "lib/api-client";
 import type { ChatUploadResult } from "lib/api-types/upload";
-import { consumeSseJsonStream } from "lib/chat-turn-stream";
+import { CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX } from "lib/chat-ui-constants";
+import { isAllowedChatImageFile, isAllowedChatUserPickedFile } from "lib/file-upload-config";
+
 import { ChatComposer } from "./chat-composer";
-import { mapApiMessage } from "./chat-format";
+import { imageFileFromComposerPaste } from "./chat-shell-utils";
 import { ChatHeader } from "./chat-header";
 import { ChatMessageThread } from "./chat-message-thread";
 import { ChatSidebar } from "./chat-sidebar";
 import { ChatUsageBanner } from "./chat-usage-banner";
-
-/** Guest vs signed-in usage cache — avoids stale anon quota after login. */
-const USAGE_SCOPE_ANON = "__anon__";
-
-/** Prefer `/api/uploads/image` when the generic file picker was used with an allowed image. */
-function shouldUploadFileAsImage(file: File): boolean {
-  const base = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
-  const allowedMime =
-    base === "image/png" ||
-    base === "image/jpeg" ||
-    base === "image/jpg" ||
-    base === "image/gif" ||
-    base === "image/webp";
-  if (allowedMime) return true;
-  return /\.(png|jpe?g|gif|webp)$/i.test(file.name);
-}
-
-function sortChatsForSidebar(a: ApiChat, b: ApiChat): number {
-  const ap = Boolean(a.pinned);
-  const bp = Boolean(b.pinned);
-  if (ap !== bp) return ap ? -1 : 1;
-  return a.createdAt < b.createdAt ? 1 : -1;
-}
+import { useChatMutations } from "./use-chat-mutations";
+import { useChatQueries } from "./use-chat-queries";
 
 export function ChatShell() {
-  const queryClient = useQueryClient();
   const { isLoaded, userId } = useAuth();
   const isGuestMode = isLoaded && !userId;
 
@@ -72,16 +38,6 @@ export function ChatShell() {
   const [attachmentUploadPending, setAttachmentUploadPending] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useLayoutEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const sync = () => {
-      if (mq.matches) setShowSidebar(false);
-    };
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -105,277 +61,43 @@ export function ChatShell() {
     [updateSelectedChatId, closeMobileSidebar],
   );
 
-  const chatsQuery = useQuery({
-    queryKey: ["chats"],
-    queryFn: () => apiGet<ApiChat[]>("/api/chats"),
+  const {
+    queryClient,
+    chatsQuery,
+    chatDetailQuery,
+    activeChatId,
+    chatsForSidebar,
+    activeMessages,
+    activeTitle,
+    usage,
+    anonFreeLimitReached,
+    isBootLoading,
+    isChatLoading,
+    queryLoadError,
+  } = useChatQueries({
+    isLoaded,
+    userId,
+    isGuestMode,
+    selectedChatId,
   });
 
-  const usageQuery = useQuery({
-    queryKey: ["usage", userId ?? USAGE_SCOPE_ANON],
-    queryFn: () => apiGet<MeUsageData>("/api/me/usage"),
-    enabled: isLoaded,
+  const { createChatMutation, patchChatMutation, deleteChatMutation, sendMutation } = useChatMutations({
+    queryClient,
+    updateSelectedChatId,
+    closeMobileSidebar,
+    setDraft,
+    setAttachmentError,
   });
 
-  useEffect(() => {
-    if (!isLoaded || !userId) return;
-    queryClient.removeQueries({ queryKey: ["usage", USAGE_SCOPE_ANON] });
-  }, [isLoaded, userId, queryClient]);
-
-  const chatsForSidebar = chatsQuery.data ?? [];
-
-  const activeChatId = useMemo(() => {
-    if (!isGuestMode) return selectedChatId;
-    if (!chatsQuery.isSuccess) return selectedChatId;
-    const list = chatsQuery.data ?? [];
-    if (list.length === 0) return selectedChatId;
-    if (selectedChatId && list.some((c) => c.id === selectedChatId)) return selectedChatId;
-    return list[0].id;
-  }, [isGuestMode, chatsQuery.isSuccess, chatsQuery.data, selectedChatId]);
-
-  const chatDetailQuery = useQuery({
-    queryKey: ["chat", activeChatId],
-    queryFn: () => apiGet<ChatWithMessages>(`/api/chats/${activeChatId}`),
-    enabled: Boolean(activeChatId),
-  });
-
-  const activeMessages = useMemo(() => {
-    const rows = chatDetailQuery.data?.messages ?? [];
-    return rows.map(mapApiMessage);
-  }, [chatDetailQuery.data?.messages]);
-
-  const activeTitle = chatDetailQuery.data?.title ?? "Chat";
-
-  const createChatMutation = useMutation({
-    mutationFn: () => apiPost<ApiChat>("/api/chats", {}),
-    onSuccess: (chat) => {
-      const row: ApiChat = { ...chat, pinned: Boolean(chat.pinned) };
-      queryClient.setQueryData<ChatWithMessages>(["chat", row.id], {
-        ...row,
-        messages: [],
-      });
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-        const without = previous?.filter((c) => c.id !== row.id) ?? [];
-        return [...without, row].sort(sortChatsForSidebar);
-      });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
-      updateSelectedChatId(row.id);
-      closeMobileSidebar();
-    },
-  });
-
-  const patchChatMutation = useMutation({
-    mutationFn: ({ chatId, ...body }: { chatId: string; title?: string; pinned?: boolean }) =>
-      apiPatch<ApiChat>(`/api/chats/${chatId}`, body),
-    onSuccess: (chat) => {
-      queryClient.setQueryData<ChatWithMessages>(["chat", chat.id], (previous) =>
-        previous ? { ...previous, title: chat.title, pinned: chat.pinned, updatedAt: chat.updatedAt } : previous,
-      );
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-        if (!previous) return previous;
-        const next = previous.map((c) => (c.id === chat.id ? chat : c));
-        return [...next].sort(sortChatsForSidebar);
-      });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
-    },
-  });
-
-  const deleteChatMutation = useMutation({
-    mutationFn: (chatId: string) => apiDelete(`/api/chats/${chatId}`),
-    onSuccess: (_, chatId) => {
-      queryClient.removeQueries({ queryKey: ["chat", chatId] });
-      queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-        const next = previous?.filter((c) => c.id !== chatId) ?? [];
-        return [...next].sort(sortChatsForSidebar);
-      });
-      updateSelectedChatId((current) => {
-        if (current !== chatId) return current;
-        const list = queryClient.getQueryData<ApiChat[]>(["chats"]) ?? [];
-        return list[0]?.id ?? null;
-      });
-      void queryClient.invalidateQueries({ queryKey: ["chats"] });
-    },
-  });
-
-  const sendMutation = useMutation({
-    mutationFn: async (variables: {
-      chatId: string;
-      content: string;
-      shouldRename: boolean;
-      nextTitle: string;
-      optimisticId: string;
-    }) => {
-      const res = await fetch(`/api/chats/${variables.chatId}/turn`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: variables.content,
-          ...(variables.shouldRename ? { renameTitle: variables.nextTitle } : {}),
-        }),
-      });
-
-      if (!res.ok) {
-        throw await readApiError(res);
-      }
-
-      const ct = res.headers.get("content-type") ?? "";
-      if (!ct.includes("text/event-stream")) {
-        throw new Error("Expected streamed chat response");
-      }
-
-      let assistantMessageId = "";
-      let accumulated = "";
-      let rafId: number | null = null;
-
-      const flushContent = () => {
-        rafId = null;
-        const text = accumulated;
-        if (!assistantMessageId) return;
-        queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            messages: prev.messages.map((m) =>
-              m.id === assistantMessageId ? { ...m, content: text } : m,
-            ),
-          };
-        });
-      };
-
-      const scheduleFlush = () => {
-        if (rafId != null) return;
-        rafId = requestAnimationFrame(flushContent);
-      };
-
-      let sawTerminalEvent = false;
-      await consumeSseJsonStream<ChatTurnStreamEvent>(res, (evt) => {
-        switch (evt.type) {
-          case "start": {
-            assistantMessageId = evt.assistantMessage.id;
-            accumulated = "";
-            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
-              if (!previous) return previous;
-              const withoutOptimistic = previous.messages.filter(
-                (m) => m.id !== variables.optimisticId,
-              );
-              return {
-                ...previous,
-                title: evt.title,
-                messages: [...withoutOptimistic, evt.userMessage, evt.assistantMessage],
-              };
-            });
-            break;
-          }
-          case "delta": {
-            accumulated += evt.text;
-            scheduleFlush();
-            break;
-          }
-          case "done": {
-            sawTerminalEvent = true;
-            setAttachmentError(null);
-            if (rafId != null) {
-              cancelAnimationFrame(rafId);
-              rafId = null;
-            }
-            queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], (previous) => {
-              if (!previous) return previous;
-              return {
-                ...previous,
-                title: evt.title,
-                updatedAt: evt.assistantMessage.createdAt,
-                messages: previous.messages.map((m) =>
-                  m.id === evt.assistantMessage.id ? evt.assistantMessage : m,
-                ),
-              };
-            });
-
-            if (evt.anonymousQuotaExhausted) {
-              queryClient.setQueryData<ApiChat[]>(["chats"], []);
-            } else {
-              queryClient.setQueryData<ApiChat[]>(["chats"], (previous) => {
-                if (!previous) return previous;
-                const next = previous.map((chat) =>
-                  chat.id === variables.chatId
-                    ? {
-                        ...chat,
-                        title: evt.title,
-                        updatedAt: evt.assistantMessage.createdAt,
-                      }
-                    : chat,
-                );
-                return [...next].sort(sortChatsForSidebar);
-              });
-            }
-            void queryClient.invalidateQueries({ queryKey: ["usage"] });
-            break;
-          }
-          case "error": {
-            sawTerminalEvent = true;
-            if (rafId != null) {
-              cancelAnimationFrame(rafId);
-              rafId = null;
-            }
-            void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
-            void queryClient.invalidateQueries({ queryKey: ["chats"] });
-            break;
-          }
-          default:
-            break;
-        }
-      });
-
-      if (!sawTerminalEvent) {
-        void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
-      }
-    },
-    onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: ["chat", variables.chatId] });
-
-      const previousChat = queryClient.getQueryData<ChatWithMessages>(["chat", variables.chatId]);
-      const optimisticMessage: ApiMessage = {
-        id: variables.optimisticId,
-        chatId: variables.chatId,
-        role: "user",
-        content: variables.content,
-        createdAt: new Date().toISOString(),
-      };
-
-      if (previousChat) {
-        queryClient.setQueryData<ChatWithMessages>(["chat", variables.chatId], {
-          ...previousChat,
-          ...(variables.shouldRename ? { title: variables.nextTitle } : {}),
-          messages: [...previousChat.messages, optimisticMessage],
-        });
-      }
-
-      return { previousChat };
-    },
-    onError: (error, variables, context) => {
-      if (error instanceof ApiError && error.code === "FREE_LIMIT_EXCEEDED") {
-        queryClient.setQueryData<ApiChat[]>(["chats"], []);
-        queryClient.removeQueries({ queryKey: ["chat", variables.chatId] });
-        updateSelectedChatId(null);
-        void queryClient.invalidateQueries({ queryKey: ["usage"] });
-        setDraft(variables.content);
-        return;
-      }
-      if (context?.previousChat !== undefined) {
-        queryClient.setQueryData(["chat", variables.chatId], context.previousChat);
-      } else {
-        void queryClient.invalidateQueries({ queryKey: ["chat", variables.chatId] });
-      }
-      setDraft(variables.content);
-    },
-  });
-
-  const usage = usageQuery.data;
-  const anonFreeLimitReached = Boolean(
-    isGuestMode &&
-      usage?.isAnonymous &&
-      usage.remainingQuestions !== null &&
-      usage.remainingQuestions <= 0,
-  );
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => {
+      if (mq.matches) setShowSidebar(false);
+    };
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   const handleComposerFocus = () => {
     if (anonFreeLimitReached) return;
@@ -425,13 +147,10 @@ export function ChatShell() {
       setAttachmentUploadPending(true);
       try {
         if (selectedImage) {
-          uploaded.push(await apiUploadFile<ChatUploadResult>("/api/uploads/image", selectedImage));
+          uploaded.push(await uploadChatImage(selectedImage));
         }
         if (selectedFile) {
-          const filePath = shouldUploadFileAsImage(selectedFile)
-            ? "/api/uploads/image"
-            : "/api/uploads/document";
-          uploaded.push(await apiUploadFile<ChatUploadResult>(filePath, selectedFile));
+          uploaded.push(await uploadChatUserPickedFile(selectedFile));
         }
       } catch (err) {
         const msg = err instanceof ApiError ? err.message : "Upload failed";
@@ -454,13 +173,6 @@ export function ChatShell() {
           : text
         : attachmentLines.join("\n");
 
-    const detail =
-      queryClient.getQueryData<ChatWithMessages>(["chat", chatId]) ?? chatDetailQuery.data;
-    const wasEmpty = (detail?.messages.length ?? 0) === 0;
-    const currentTitle = detail?.title ?? "";
-    const shouldRename = wasEmpty && (currentTitle === DEFAULT_CHAT_TITLE || currentTitle.length === 0);
-    const nextTitle = content.slice(0, 120);
-
     setDraft("");
     setSelectedFile(null);
     setSelectedImage(null);
@@ -470,39 +182,48 @@ export function ChatShell() {
     sendMutation.mutate({
       chatId,
       content,
-      shouldRename,
-      nextTitle,
       optimisticId: `optimistic-${crypto.randomUUID()}`,
     });
   };
 
-  const openAttachmentPicker = async (kind: "file" | "image") => {
-    setAttachmentError(null);
-    if (sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached) return;
-    if (!selectedChatId) {
-      if (isGuestMode) {
-        const list = chatsQuery.data ?? [];
-        if (list.length > 0) {
-          updateSelectedChatId(list[0].id);
-        } else if (createChatMutation.isPending) {
-          return;
-        } else {
-          try {
-            await createChatMutation.mutateAsync();
-          } catch {
-            return;
-          }
-        }
-      } else if (createChatMutation.isPending) {
-        return;
-      } else {
-        try {
-          await createChatMutation.mutateAsync();
-        } catch {
-          return;
-        }
+  const ensureChatReadyForAttachment = async (): Promise<boolean> => {
+    if (sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached) {
+      return false;
+    }
+    if (selectedChatId !== null) {
+      return true;
+    }
+    if (isGuestMode) {
+      const list = chatsQuery.data ?? [];
+      if (list.length > 0) {
+        updateSelectedChatId(list[0].id);
+        return true;
+      }
+      if (createChatMutation.isPending) {
+        return false;
+      }
+      try {
+        await createChatMutation.mutateAsync();
+        return true;
+      } catch {
+        return false;
       }
     }
+    if (createChatMutation.isPending) {
+      return false;
+    }
+    try {
+      await createChatMutation.mutateAsync();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const openAttachmentPicker = async (kind: "file" | "image") => {
+    setAttachmentError(null);
+    const ok = await ensureChatReadyForAttachment();
+    if (!ok) return;
     if (kind === "file") {
       fileInputRef.current?.click();
     } else {
@@ -510,29 +231,39 @@ export function ChatShell() {
     }
   };
 
+  const attachmentTypeError =
+    "Unsupported file type. Use PDF, TXT, Word, or images (PNG, JPEG, GIF, WebP).";
+
   const handleFilePick = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedFile(event.target.files?.[0] ?? null);
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+    if (!isAllowedChatUserPickedFile(file)) {
+      setAttachmentError(attachmentTypeError);
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError(null);
+    setSelectedFile(file);
   };
 
   const handleImagePick = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedImage(event.target.files?.[0] ?? null);
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setSelectedImage(null);
+      return;
+    }
+    if (!isAllowedChatImageFile(file)) {
+      setAttachmentError(attachmentTypeError);
+      event.target.value = "";
+      return;
+    }
+    setAttachmentError(null);
+    setSelectedImage(file);
   };
 
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    textarea.style.height = "0px";
-    const nextHeight = Math.min(textarea.scrollHeight, 220);
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY = textarea.scrollHeight > 220 ? "auto" : "hidden";
-  }, [draft]);
-
-  const loadError =
-    chatsQuery.error?.message ?? chatDetailQuery.error?.message ?? sendMutation.error?.message;
-  const bannerError = loadError ?? attachmentError;
-  const isBootLoading = chatsQuery.isLoading;
-  const isChatLoading = Boolean(activeChatId) && chatDetailQuery.isLoading;
   const sendDisabled =
     sendMutation.isPending ||
     createChatMutation.isPending ||
@@ -546,6 +277,38 @@ export function ChatShell() {
     (selectedChatId === null && createChatMutation.isPending) ||
     anonFreeLimitReached;
   const textareaDisabled = sendMutation.isPending || attachmentUploadPending || anonFreeLimitReached;
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (attachmentDisabled || textareaDisabled) return;
+    const file = imageFileFromComposerPaste(event);
+    if (!file) return;
+    if (!isAllowedChatImageFile(file)) {
+      event.preventDefault();
+      setAttachmentError(attachmentTypeError);
+      return;
+    }
+    event.preventDefault();
+    setAttachmentError(null);
+    void (async () => {
+      const ok = await ensureChatReadyForAttachment();
+      if (!ok) return;
+      setSelectedImage(file);
+    })();
+  };
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "0px";
+    const max = CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX;
+    const nextHeight = Math.min(textarea.scrollHeight, max);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > max ? "auto" : "hidden";
+  }, [draft]);
+
+  const loadError = queryLoadError ?? sendMutation.error?.message;
+  const bannerError = loadError ?? attachmentError;
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -601,7 +364,9 @@ export function ChatShell() {
             deleteChatMutation.mutate(chatId);
           }}
           onNewChat={() => createChatMutation.mutate()}
-          onPatchChat={(input) => patchChatMutation.mutate(input)}
+          onPatchChat={async (input) => {
+            await patchChatMutation.mutateAsync(input);
+          }}
           onRenamingChatIdChange={setSidebarRenamingChatId}
           onSelectChat={handleSidebarSelectChat}
           open={showSidebar}
@@ -623,7 +388,9 @@ export function ChatShell() {
         <ChatUsageBanner usage={usage} />
 
         {bannerError ? (
-          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600">{bannerError}</div>
+          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600 animate-chat-pop-in">
+            {bannerError}
+          </div>
         ) : null}
 
         <ChatMessageThread
@@ -645,6 +412,7 @@ export function ChatShell() {
           imageInputRef={imageInputRef}
           onComposerFocus={handleComposerFocus}
           onComposerKeyDown={handleComposerKeyDown}
+          onComposerPaste={handleComposerPaste}
           onDraftChange={setDraft}
           onOpenAttachmentPicker={openAttachmentPicker}
           onPickFile={handleFilePick}
@@ -662,7 +430,7 @@ export function ChatShell() {
       {!isGuestMode && showSidebar ? (
         <button
           aria-label="Close menu"
-          className="fixed bottom-0 left-0 right-0 top-14 z-[40] bg-black/40 backdrop-blur-[2px] md:hidden"
+          className="fixed bottom-0 left-0 right-0 top-14 z-[40] cursor-pointer bg-black/40 backdrop-blur-[2px] md:hidden animate-chat-fade-up"
           onClick={() => setShowSidebar(false)}
           type="button"
         />
