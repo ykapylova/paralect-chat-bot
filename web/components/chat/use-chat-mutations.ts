@@ -123,21 +123,23 @@ export function useChatMutations({
         rafId = requestAnimationFrame(flushContent);
       };
 
+      const optimisticAssistantId = `${variables.optimisticId}-assistant`;
       let sawTerminalEvent = false;
       await consumeSseJsonStream<ChatTurnStreamEvent>(res, (evt) => {
         switch (evt.type) {
           case "start": {
-            assistantMessageId = evt.assistantMessage.id;
+            assistantMessageId = optimisticAssistantId;
             accumulated = "";
             queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), (previous) => {
               if (!previous) return previous;
-              const withoutOptimistic = previous.messages.filter(
-                (m) => m.id !== variables.optimisticId,
-              );
+              const hasOptimisticAssistant = previous.messages.some((m) => m.id === optimisticAssistantId);
+              if (hasOptimisticAssistant) {
+                return { ...previous, title: evt.title };
+              }
               return {
                 ...previous,
                 title: evt.title,
-                messages: [...withoutOptimistic, evt.userMessage, evt.assistantMessage],
+                messages: [...previous.messages, evt.userMessage, evt.assistantMessage],
               };
             });
             break;
@@ -160,9 +162,19 @@ export function useChatMutations({
                 ...previous,
                 title: evt.title,
                 updatedAt: evt.assistantMessage.createdAt,
-                messages: previous.messages.map((m) =>
-                  m.id === evt.assistantMessage.id ? evt.assistantMessage : m,
-                ),
+                messages: previous.messages.map((m) => {
+                  if (m.id === assistantMessageId) {
+                    return {
+                      ...m,
+                      content: evt.assistantMessage.content,
+                      createdAt: evt.assistantMessage.createdAt,
+                    };
+                  }
+                  if (m.id === evt.assistantMessage.id) {
+                    return evt.assistantMessage;
+                  }
+                  return m;
+                }),
               };
             });
 
@@ -216,11 +228,18 @@ export function useChatMutations({
         content: variables.content,
         createdAt: new Date().toISOString(),
       };
+      const optimisticAssistantMessage: ApiMessage = {
+        id: `${variables.optimisticId}-assistant`,
+        chatId: variables.chatId,
+        role: "assistant",
+        content: "",
+        createdAt: new Date().toISOString(),
+      };
 
       if (previousChat) {
         queryClient.setQueryData<ChatWithMessages>(queryKeys.chat.detail(variables.chatId), {
           ...previousChat,
-          messages: [...previousChat.messages, optimisticMessage],
+          messages: [...previousChat.messages, optimisticMessage, optimisticAssistantMessage],
         });
       }
 

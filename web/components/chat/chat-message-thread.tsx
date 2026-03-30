@@ -47,8 +47,12 @@ export function ChatMessageThread({
         </div>
       ) : (
         <div className="mx-auto flex max-w-3xl flex-col gap-6">
-          {messages.map((message) => (
-            <article key={message.id} className="group">
+          {messages.map((message, index) => (
+            <article
+              key={`${index}-${message.role}`}
+              className="group animate-chat-fade-up"
+              style={{ animationDelay: `${Math.min(index * 22, 220)}ms` }}
+            >
               <div className="mb-2 flex items-center gap-2 text-xs text-[var(--muted)]">
                 {message.role === "assistant" ? (
                   <Bot className="h-4 w-4" />
@@ -58,22 +62,29 @@ export function ChatMessageThread({
                 <span>{message.role === "assistant" ? "Assistant" : "You"}</span>
                 <span>·</span>
                 <span>{message.createdAt}</span>
-                {message.isPending ? (
-                  <>
-                    <span>·</span>
-                    <span className="text-[var(--muted)]">Waiting for response…</span>
-                  </>
-                ) : null}
               </div>
               <div
                 className={`rounded-2xl border px-4 py-3 text-[15px] leading-7 ${
                   message.role === "assistant"
                     ? "border-[var(--border)] bg-[var(--panel)]"
                     : "border-transparent bg-[#eceff3]"
-                } ${message.isPending ? "opacity-80" : ""}`}
+                } ${message.isPending ? "opacity-80 animate-chat-pulse-soft" : ""}`}
               >
                 {message.role === "assistant" && message.text.length === 0 ? (
-                  <p className="text-[var(--muted)]">Thinking…</p>
+                  <div className="inline-flex items-center gap-2 text-[var(--muted)]">
+                    <span>Thinking</span>
+                    <span className="inline-flex gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-current animate-chat-pulse-soft" />
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-current animate-chat-pulse-soft"
+                        style={{ animationDelay: "140ms" }}
+                      />
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-current animate-chat-pulse-soft"
+                        style={{ animationDelay: "280ms" }}
+                      />
+                    </span>
+                  </div>
                 ) : (
                   <MessageContent text={message.text} />
                 )}

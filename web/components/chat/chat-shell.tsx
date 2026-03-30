@@ -11,12 +11,10 @@ import {
   useState,
 } from "react";
 
-import type { ChatWithMessages } from "server/types/chat";
 import { ApiError, uploadChatImage, uploadChatUserPickedFile } from "lib/api-client";
 import type { ChatUploadResult } from "lib/api-types/upload";
 import { CHAT_COMPOSER_TEXTAREA_MAX_HEIGHT_PX } from "lib/chat-ui-constants";
 import { isAllowedChatImageFile, isAllowedChatUserPickedFile } from "lib/file-upload-config";
-import { queryKeys } from "lib/query-keys";
 
 import { ChatComposer } from "./chat-composer";
 import { imageFileFromComposerPaste } from "./chat-shell-utils";
@@ -390,7 +388,9 @@ export function ChatShell() {
         <ChatUsageBanner usage={usage} />
 
         {bannerError ? (
-          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600">{bannerError}</div>
+          <div className="mx-auto max-w-3xl px-4 py-3 text-center text-sm text-red-600 animate-chat-pop-in">
+            {bannerError}
+          </div>
         ) : null}
 
         <ChatMessageThread
@@ -430,7 +430,7 @@ export function ChatShell() {
       {!isGuestMode && showSidebar ? (
         <button
           aria-label="Close menu"
-          className="fixed bottom-0 left-0 right-0 top-14 z-[40] bg-black/40 backdrop-blur-[2px] md:hidden"
+          className="fixed bottom-0 left-0 right-0 top-14 z-[40] cursor-pointer bg-black/40 backdrop-blur-[2px] md:hidden animate-chat-fade-up"
           onClick={() => setShowSidebar(false)}
           type="button"
         />

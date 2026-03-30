@@ -11,7 +11,7 @@ export function MessageContent({ text }: MessageContentProps) {
     p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
     a: ({ href, children }) => (
       <a
-        className="inline-flex items-center gap-1 font-medium text-[#2563eb] underline decoration-[#2563eb]/40 underline-offset-2 hover:decoration-[#2563eb]"
+        className="inline-flex cursor-pointer items-center gap-1 font-medium text-[#2563eb] underline decoration-[#2563eb]/40 underline-offset-2 hover:decoration-[#2563eb]"
         href={href}
         rel="noopener noreferrer"
         target="_blank"

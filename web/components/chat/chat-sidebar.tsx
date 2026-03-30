@@ -102,7 +102,7 @@ export function ChatSidebar({
       className={`flex w-[min(280px,100vw)] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel-soft)] p-3 max-md:fixed max-md:bottom-0 max-md:left-0 max-md:top-14 max-md:z-[45] max-md:overflow-y-auto max-md:transition-transform max-md:duration-200 max-md:ease-out max-md:shadow-[4px_0_28px_rgba(0,0,0,0.12)] md:relative md:top-auto md:z-auto md:h-screen md:max-h-none md:translate-x-0 md:overflow-y-auto md:shadow-none ${open ? "max-md:translate-x-0" : "max-md:pointer-events-none max-md:-translate-x-full"} ${open ? "md:flex" : "md:hidden"}`}
     >
       <button
-        className="mb-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm font-medium transition hover:bg-[#f9fafb] disabled:opacity-50"
+        className="mb-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm font-medium transition duration-200 hover:bg-[#f9fafb] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
         disabled={createPending}
         onClick={onNewChat}
         type="button"
@@ -133,7 +133,7 @@ export function ChatSidebar({
         {searchQuery ? (
           <button
             aria-label="Clear search"
-            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+            className="absolute right-2 top-1/2 flex h-7 w-7 cursor-pointer -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
             onClick={() => setSearchQuery("")}
             type="button"
           >
@@ -160,9 +160,10 @@ export function ChatSidebar({
             return (
               <div
                 key={chat.id}
-                className={`group relative flex w-full items-stretch gap-0.5 rounded-lg transition ${
+                className={`group relative flex w-full items-stretch gap-0.5 rounded-lg transition duration-200 animate-chat-fade-up ${
                   isActive ? "bg-[#e8ecf2]" : "hover:bg-[#eceff3]"
                 }`}
+                style={{ animationDelay: `${Math.min(180, (chat.id.charCodeAt(0) % 8) * 18)}ms` }}
               >
                 {isRenaming ? (
                   <div className="mx-1 my-1 min-w-0 flex-1">
@@ -196,7 +197,7 @@ export function ChatSidebar({
                 ) : (
                   <>
                     <button
-                      className="min-w-0 flex-1 px-2 py-2 text-left"
+                      className="min-w-0 flex-1 cursor-pointer px-2 py-2 text-left"
                       onClick={() => onSelectChat(chat.id)}
                       type="button"
                     >
@@ -215,7 +216,7 @@ export function ChatSidebar({
                         <DropdownMenu.Trigger asChild>
                           <button
                             aria-label="Chat actions"
-                            className="rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[#dfe4eb] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-40"
+                            className="cursor-pointer rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[#dfe4eb] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-40"
                             disabled={menuBusy}
                             onClick={(e) => e.stopPropagation()}
                             type="button"
