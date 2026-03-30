@@ -11,6 +11,11 @@ type ChatHeaderProps = {
   activeTitle: string;
 };
 
+const chatModelLabel =
+  process.env.NEXT_PUBLIC_CHAT_MODEL_LABEL?.trim() ||
+  process.env.NEXT_PUBLIC_OPENAI_CHAT_MODEL?.trim() ||
+  "gpt-4o-mini";
+
 export function ChatHeader({
   isGuestMode,
   showMenu,
@@ -38,7 +43,7 @@ export function ChatHeader({
         </span>
       </div>
       <div className="flex items-center gap-2 sm:gap-3">
-        <span className="hidden text-xs text-[var(--muted)] sm:inline">GPT-4.1 mini</span>
+        <span className="hidden text-xs text-[var(--muted)] sm:inline">{chatModelLabel}</span>
         {isGuestMode ? (
           <Link
             className="cursor-pointer rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm font-medium text-[var(--foreground)] transition hover:bg-[#eceff3]"

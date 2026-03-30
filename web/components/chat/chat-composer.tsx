@@ -52,38 +52,8 @@ export function ChatComposer({
   return (
     <footer className="sticky bottom-0 mt-auto bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent px-4 pb-5 pt-6">
       <form className="mx-auto w-full max-w-3xl" onSubmit={onSubmit} ref={formRef}>
-        <div className="rounded-[28px] border border-[var(--border)] bg-[var(--panel)] p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition duration-200 focus-within:border-[#c9d0dd] focus-within:shadow-[0_12px_38px_rgba(0,0,0,0.12)]">
-          {(selectedFile || selectedImage) && (
-            <div className="flex flex-wrap gap-2 px-2 pb-2 pt-1 animate-chat-fade-up">
-              {selectedFile && (
-                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
-                  <span className="max-w-[260px] truncate">File: {selectedFile.name}</span>
-                  <button
-                    aria-label="Remove file"
-                    className="cursor-pointer rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
-                    onClick={onRemoveFile}
-                    type="button"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              )}
-              {selectedImage && (
-                <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
-                  <span className="max-w-[260px] truncate">Image: {selectedImage.name}</span>
-                  <button
-                    aria-label="Remove image"
-                    className="cursor-pointer rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
-                    onClick={onRemoveImage}
-                    type="button"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              )}
-            </div>
-          )}
-          <div className="grid grid-cols-[1fr_auto] gap-x-2.5 px-0.5">
+        <div className="rounded-[28px] border border-[var(--border)] bg-[var(--panel)] p-3.5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition focus-within:border-[#c9d0dd] focus-within:shadow-[0_10px_34px_rgba(0,0,0,0.1)]">
+          <div className="grid grid-cols-[1fr_auto] gap-x-2.5 gap-y-1.5 px-0.5">
             <textarea
               className="min-h-[44px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={textareaDisabled}
@@ -97,13 +67,13 @@ export function ChatComposer({
               value={draft}
             />
             <button
-              className="row-span-2 mt-1 inline-flex h-10 w-10 cursor-pointer items-center justify-center self-center rounded-full bg-black text-white transition duration-200 hover:scale-[1.04] hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:scale-100 disabled:bg-[#d1d5db]"
+              className="mt-2 inline-flex h-10 w-10 items-center justify-center self-start rounded-full bg-black text-white transition hover:scale-[1.02] hover:opacity-90 disabled:cursor-not-allowed disabled:scale-100 disabled:bg-[#d1d5db]"
               disabled={sendDisabled}
               type="submit"
             >
               <SendHorizontal className="h-4 w-4" />
             </button>
-            <div className="flex items-center gap-1 px-1 pb-1">
+            <div className="col-span-2 flex min-w-0 items-center gap-2 px-1 pb-1">
               <button
                 className="cursor-pointer rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40"
                 disabled={attachmentDisabled}
@@ -120,6 +90,36 @@ export function ChatComposer({
               >
                 <ImageIcon className="h-4 w-4" />
               </button>
+              {selectedFile && (
+                <span className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
+                  <span className="truncate">File: {selectedFile.name}</span>
+                  <button
+                    aria-label="Remove file"
+                    className="rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
+                    onClick={onRemoveFile}
+                    type="button"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+              {selectedImage && (
+                <span className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
+                  <span className="truncate">Image: {selectedImage.name}</span>
+                  <button
+                    aria-label="Remove image"
+                    className="rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
+                    onClick={onRemoveImage}
+                    type="button"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+              <span className="ml-auto inline-flex items-center gap-2 whitespace-nowrap text-[11px] text-[var(--muted)]">
+                <MessageCircle className="h-3.5 w-3.5" />
+                <span>Messages are generated by AI and may be inaccurate.</span>
+              </span>
             </div>
           </div>
           <input
@@ -130,10 +130,6 @@ export function ChatComposer({
             type="file"
           />
           <input accept="image/*" className="hidden" onChange={onPickImage} ref={imageInputRef} type="file" />
-          <div className="flex items-center gap-2 px-2 pb-1 pt-1 text-[11px] text-[var(--muted)]">
-            <MessageCircle className="h-3.5 w-3.5" />
-            <span>Messages are generated by AI and may be inaccurate.</span>
-          </div>
         </div>
       </form>
     </footer>
