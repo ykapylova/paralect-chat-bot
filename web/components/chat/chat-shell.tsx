@@ -376,7 +376,9 @@ export function ChatShell() {
             deleteChatMutation.mutate(chatId);
           }}
           onNewChat={() => createChatMutation.mutate()}
-          onPatchChat={(input) => patchChatMutation.mutate(input)}
+          onPatchChat={async (input) => {
+            await patchChatMutation.mutateAsync(input);
+          }}
           onRenamingChatIdChange={setSidebarRenamingChatId}
           onSelectChat={handleSidebarSelectChat}
           open={showSidebar}

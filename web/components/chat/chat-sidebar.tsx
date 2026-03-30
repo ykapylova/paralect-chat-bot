@@ -4,6 +4,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { MoreVertical, Pin, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Chat as ApiChat } from "server/types/chat";
+import { CHAT_AUTO_TITLE_MAX_LENGTH } from "lib/chat-ui-constants";
 import { formatChatSubtitle } from "./chat-format";
 
 type PatchChatInput = { chatId: string; title?: string; pinned?: boolean };
@@ -20,7 +21,7 @@ type ChatSidebarProps = {
   deletePending: boolean;
   onNewChat: () => void;
   onSelectChat: (id: string) => void;
-  onPatchChat: (input: PatchChatInput) => void;
+  onPatchChat: (input: PatchChatInput) => Promise<void>;
   onDeleteChat: (chatId: string) => void;
 };
 
@@ -41,6 +42,8 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameSubmitting, setRenameSubmitting] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const menuBusy = patchPending || deletePending;
 
@@ -56,9 +59,11 @@ export function ChatSidebar({
     renameInputRef.current.select();
   }, [renamingChatId]);
 
-  const commitRename = (chat: ApiChat) => {
+  const commitRename = async (chat: ApiChat) => {
+    if (renameSubmitting) return;
     if (!renamingChatId || renamingChatId !== chat.id) return;
     const trimmed = renameDraft.trim();
+    setRenameError(null);
     if (!trimmed) {
       onRenamingChatIdChange(null);
       setRenameDraft(chat.title);
@@ -68,13 +73,27 @@ export function ChatSidebar({
       onRenamingChatIdChange(null);
       return;
     }
-    onPatchChat({ chatId: chat.id, title: trimmed });
-    onRenamingChatIdChange(null);
+    if (trimmed.length > CHAT_AUTO_TITLE_MAX_LENGTH) {
+      setRenameError(`Title is too long (max ${CHAT_AUTO_TITLE_MAX_LENGTH} characters)`);
+      return;
+    }
+    setRenameSubmitting(true);
+    try {
+      await onPatchChat({ chatId: chat.id, title: trimmed });
+      setRenameError(null);
+      onRenamingChatIdChange(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not rename chat";
+      setRenameError(message);
+    } finally {
+      setRenameSubmitting(false);
+    }
   };
 
   const cancelRename = (chat: ApiChat) => {
     onRenamingChatIdChange(null);
     setRenameDraft(chat.title);
+    setRenameError(null);
   };
 
   return (
@@ -146,23 +165,34 @@ export function ChatSidebar({
                 }`}
               >
                 {isRenaming ? (
-                  <input
-                    className="mx-1 my-1 min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-sm outline-none ring-0 focus:border-[#c9d0dd]"
-                    onBlur={() => commitRename(chat)}
-                    onChange={(e) => setRenameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitRename(chat);
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        cancelRename(chat);
-                      }
-                    }}
-                    ref={renameInputRef}
-                    value={renameDraft}
-                  />
+                  <div className="mx-1 my-1 min-w-0 flex-1">
+                    <input
+                      className="w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-sm outline-none ring-0 focus:border-[#c9d0dd]"
+                      disabled={renameSubmitting}
+                      onBlur={() => void commitRename(chat)}
+                      onChange={(e) => {
+                        setRenameDraft(e.target.value);
+                        if (renameError) setRenameError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void commitRename(chat);
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelRename(chat);
+                        }
+                      }}
+                      ref={renameInputRef}
+                      value={renameDraft}
+                    />
+                    {renameError ? (
+                      <p className="mt-1 rounded-md border border-red-200 bg-red-50/70 px-2 py-1 text-xs leading-4 text-red-700">
+                        {renameError}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : (
                   <>
                     <button
