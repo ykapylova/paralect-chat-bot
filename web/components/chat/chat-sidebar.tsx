@@ -1,9 +1,18 @@
 "use client";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { MoreVertical, Pin, Plus, Search, X } from "lucide-react";
+import { Inbox, MoreVertical, Pin, Plus, Search, SearchX, X } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "components/ui/dropdown-menu";
+import { Input } from "components/ui/input";
 import type { Chat as ApiChat } from "server/types/chat";
 import { CHAT_AUTO_TITLE_MAX_LENGTH } from "lib/chat-ui-constants";
 import logoImage from "../../app/logo.png";
@@ -108,24 +117,24 @@ export function ChatSidebar({
         <p className="text-sm font-semibold tracking-tight">AI Assistant</p>
       </div>
 
-      <button
-        className="mb-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm font-medium transition duration-200 hover:bg-[#f9fafb] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+      <Button
+        className="mb-3 w-full cursor-pointer justify-center gap-2 rounded-xl py-2 hover:bg-[#f9fafb] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] active:scale-[0.99]"
         disabled={createPending}
         onClick={onNewChat}
-        type="button"
+        variant="outline"
       >
         <Plus className="h-4 w-4" />
         New chat
-      </button>
+      </Button>
 
       <div className="relative mb-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-[0_2px_14px_rgba(0,0,0,0.04)] transition focus-within:border-[#c9d0dd] focus-within:shadow-[0_6px_24px_rgba(0,0,0,0.08)]">
         <Search
           aria-hidden
           className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[var(--muted)] opacity-80"
         />
-        <input
+        <Input
           aria-label="Search chats"
-          className={`w-full rounded-xl border-0 bg-transparent py-2.5 pl-10 text-[15px] leading-5 text-[var(--foreground)] outline-none ring-0 placeholder:text-[var(--muted)] placeholder:opacity-90 [&::-webkit-search-cancel-button]:appearance-none ${searchQuery ? "pr-11" : "pr-3"}`}
+          className={`rounded-xl border-0 bg-transparent py-2.5 pl-10 text-[15px] leading-5 text-[var(--foreground)] shadow-none focus:border-0 focus-visible:border-0 [&::-webkit-search-cancel-button]:appearance-none ${searchQuery ? "pr-11" : "pr-3"}`}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -138,27 +147,50 @@ export function ChatSidebar({
           value={searchQuery}
         />
         {searchQuery ? (
-          <button
+          <Button
             aria-label="Clear search"
-            className="absolute right-2 top-1/2 flex h-7 w-7 cursor-pointer -translate-y-1/2 items-center justify-center rounded-full text-[var(--muted)] transition hover:bg-[#eceff3] hover:text-[var(--foreground)]"
+            className="absolute right-2 top-1/2 h-7 w-7 -translate-y-1/2 cursor-pointer rounded-full p-0"
             onClick={() => setSearchQuery("")}
-            type="button"
+            size="icon"
+            variant="ghost"
           >
             <X className="h-3.5 w-3.5" strokeWidth={2.25} />
-          </button>
+          </Button>
         ) : null}
       </div>
 
-      <p className="px-2 pb-2 text-xs font-medium text-[var(--muted)]">
-        {searchQuery.trim() ? "Matching chats" : "Your chats"}
-      </p>
+      <div className="px-2 pb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+          {searchQuery.trim() ? "Matching chats" : "Your chats"}
+        </p>
+      </div>
       <div className="space-y-1">
         {isBootLoading ? (
-          <p className="px-2 text-sm text-[var(--muted)]">Loading chats…</p>
+          <div className="mx-0.5 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--panel)]/40 px-4 py-10">
+            <p className="text-sm font-medium text-[var(--foreground)]/80">Loading chats</p>
+            <p className="mt-2 text-[13px] leading-relaxed text-[var(--muted)] animate-chat-pulse-soft">
+              One moment…
+            </p>
+          </div>
         ) : chats.length === 0 ? (
-          <p className="px-2 text-sm text-[var(--muted)]">No chats yet. Create one to start.</p>
+          <div className="mx-0.5 flex flex-col items-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--panel)]/50 px-4 py-8 text-center">
+            <Inbox aria-hidden className="mb-3 h-9 w-9 text-[var(--muted)] opacity-70" strokeWidth={1.35} />
+            <p className="text-[15px] font-semibold tracking-tight text-[var(--foreground)]">No chats yet</p>
+            <p className="mt-2 max-w-[220px] text-[13px] leading-snug text-[var(--muted)]">
+              Start a conversation with{" "}
+              <span className="font-medium text-[var(--foreground)]/85">New chat</span> above.
+            </p>
+          </div>
         ) : filteredChats.length === 0 ? (
-          <p className="px-2 text-sm text-[var(--muted)]">No chats match &ldquo;{searchQuery.trim()}&rdquo;.</p>
+          <div className="mx-0.5 flex flex-col items-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--panel)]/50 px-4 py-8 text-center">
+            <SearchX aria-hidden className="mb-3 h-9 w-9 text-[var(--muted)] opacity-70" strokeWidth={1.35} />
+            <p className="text-[15px] font-semibold tracking-tight text-[var(--foreground)]">No matches</p>
+            <p className="mt-2 max-w-[240px] text-[13px] leading-snug text-[var(--muted)]">
+              Nothing for &ldquo;
+              <span className="font-medium text-[var(--foreground)]/80">{searchQuery.trim()}</span>
+              &rdquo;. Try different words.
+            </p>
+          </div>
         ) : (
           filteredChats.map((chat) => {
             const isActive = chat.id === activeChatId;
@@ -218,27 +250,25 @@ export function ChatSidebar({
                         {formatChatSubtitle(chat.createdAt)}
                       </p>
                     </button>
-                    <div className="flex shrink-0 items-start pt-1 pr-1 opacity-0 transition group-hover:opacity-100 has-[[data-state=open]]:opacity-100">
-                      <DropdownMenu.Root>
-                        <DropdownMenu.Trigger asChild>
+                    <div className="flex shrink-0 items-center self-stretch pr-1 opacity-0 transition group-hover:opacity-100 has-[[data-state=open]]:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <button
                             aria-label="Chat actions"
-                            className="cursor-pointer rounded-md p-1.5 text-[var(--muted)] transition hover:bg-[#dfe4eb] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-40"
+                            className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--muted)] hover:bg-[#dfe4eb] hover:text-[var(--foreground)] disabled:pointer-events-none disabled:opacity-40"
                             disabled={menuBusy}
                             onClick={(e) => e.stopPropagation()}
                             type="button"
                           >
                             <MoreVertical className="h-4 w-4" />
                           </button>
-                        </DropdownMenu.Trigger>
-                        <DropdownMenu.Portal>
-                          <DropdownMenu.Content
+                        </DropdownMenuTrigger>
+                        <DropdownMenuPortal>
+                          <DropdownMenuContent
                             align="end"
-                            className="z-[100] min-w-[168px] rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 text-sm shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
                             sideOffset={4}
                           >
-                            <DropdownMenu.Item
-                              className="cursor-pointer rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-[#eceff3]"
+                            <DropdownMenuItem
                               disabled={menuBusy}
                               onSelect={() => {
                                 onRenamingChatIdChange(chat.id);
@@ -246,25 +276,24 @@ export function ChatSidebar({
                               }}
                             >
                               Rename
-                            </DropdownMenu.Item>
-                            <DropdownMenu.Item
-                              className="cursor-pointer rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-[#eceff3]"
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
                               disabled={menuBusy}
                               onSelect={() => onPatchChat({ chatId: chat.id, pinned: !chat.pinned })}
                             >
                               {chat.pinned ? "Unpin chat" : "Pin chat"}
-                            </DropdownMenu.Item>
-                            <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-                            <DropdownMenu.Item
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
                               className="cursor-pointer rounded-md px-2.5 py-2 text-red-600 outline-none data-[highlighted]:bg-red-50"
                               disabled={menuBusy}
                               onSelect={() => onDeleteChat(chat.id)}
                             >
                               Delete chat
-                            </DropdownMenu.Item>
-                          </DropdownMenu.Content>
-                        </DropdownMenu.Portal>
-                      </DropdownMenu.Root>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenuPortal>
+                      </DropdownMenu>
                     </div>
                   </>
                 )}

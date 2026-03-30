@@ -1,6 +1,7 @@
 import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, RefObject } from "react";
 import { ImageIcon, MessageCircle, Paperclip, SendHorizontal, X } from "lucide-react";
 import { CHAT_COMPOSER_DOCUMENT_INPUT_ACCEPT } from "lib/file-upload-config";
+import { cn } from "lib/utils";
 
 type ChatComposerProps = {
   formRef: RefObject<HTMLFormElement | null>;
@@ -49,6 +50,18 @@ export function ChatComposer({
   attachmentDisabled,
   anonFreeLimitReached,
 }: ChatComposerProps) {
+  const attachmentButtonClass = cn(
+    "cursor-pointer rounded-full p-2 text-[var(--muted)] transition",
+    "hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40",
+  );
+  const attachmentChipClass = cn(
+    "inline-flex max-w-[180px] items-center gap-2 rounded-full",
+    "border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]",
+  );
+  const removeAttachmentButtonClass = cn(
+    "rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]",
+  );
+
   return (
     <footer className="sticky bottom-0 mt-auto bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent px-4 pb-5 pt-6">
       <form className="mx-auto w-full max-w-3xl" onSubmit={onSubmit} ref={formRef}>
@@ -67,7 +80,10 @@ export function ChatComposer({
               value={draft}
             />
             <button
-              className="mt-2 inline-flex h-10 w-10 items-center justify-center self-start rounded-full bg-black text-white transition hover:scale-[1.02] hover:opacity-90 disabled:cursor-not-allowed disabled:scale-100 disabled:bg-[#d1d5db]"
+              className={cn(
+                "mt-2 inline-flex h-10 w-10 items-center justify-center self-start rounded-full bg-black text-white transition",
+                "hover:scale-[1.02] hover:opacity-90 disabled:cursor-not-allowed disabled:scale-100 disabled:bg-[#d1d5db]",
+              )}
               disabled={sendDisabled}
               type="submit"
             >
@@ -75,7 +91,7 @@ export function ChatComposer({
             </button>
             <div className="col-span-2 flex min-w-0 items-center gap-2 px-1 pb-1">
               <button
-                className="cursor-pointer rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40"
+                className={attachmentButtonClass}
                 disabled={attachmentDisabled}
                 onClick={() => void onOpenAttachmentPicker("file")}
                 type="button"
@@ -83,7 +99,7 @@ export function ChatComposer({
                 <Paperclip className="h-4 w-4" />
               </button>
               <button
-                className="cursor-pointer rounded-full p-2 text-[var(--muted)] transition hover:bg-[var(--panel-soft)] hover:text-[var(--foreground)] disabled:opacity-40"
+                className={attachmentButtonClass}
                 disabled={attachmentDisabled}
                 onClick={() => void onOpenAttachmentPicker("image")}
                 type="button"
@@ -91,11 +107,11 @@ export function ChatComposer({
                 <ImageIcon className="h-4 w-4" />
               </button>
               {selectedFile && (
-                <span className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
+                <span className={attachmentChipClass}>
                   <span className="truncate">File: {selectedFile.name}</span>
                   <button
                     aria-label="Remove file"
-                    className="rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
+                    className={removeAttachmentButtonClass}
                     onClick={onRemoveFile}
                     type="button"
                   >
@@ -104,11 +120,11 @@ export function ChatComposer({
                 </span>
               )}
               {selectedImage && (
-                <span className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-xs text-[var(--foreground)]">
+                <span className={attachmentChipClass}>
                   <span className="truncate">Image: {selectedImage.name}</span>
                   <button
                     aria-label="Remove image"
-                    className="rounded-full p-0.5 text-[var(--muted)] transition hover:bg-white hover:text-[var(--foreground)]"
+                    className={removeAttachmentButtonClass}
                     onClick={onRemoveImage}
                     type="button"
                   >
